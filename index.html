@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Filtersight — Stay Accountable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1B2430;
+    --paper:#F7F8F7;
+    --teal:#2F6F6B;
+    --teal-soft:#DCEAE8;
+    --line:#D8DEDC;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter', sans-serif;
+    line-height:1.5;
+  }
+  .display{font-family:'Fraunces', serif;}
+
+  header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:28px 6vw;
+    border-bottom:1px solid var(--line);
+  }
+  .logo{font-family:'Fraunces', serif; font-weight:600; font-size:1.3rem; letter-spacing:-0.02em;}
+  nav a{color:var(--ink); text-decoration:none; margin-left:28px; font-size:0.95rem; opacity:0.75;}
+  nav a:hover{opacity:1;}
+
+  .hero{
+    max-width:760px; margin:0 auto;
+    padding:12vh 6vw 8vh;
+    text-align:center;
+  }
+  .eyebrow{
+    font-size:0.85rem; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--teal); font-weight:600; margin-bottom:20px;
+  }
+  h1{
+    font-size:clamp(2.2rem, 5vw, 3.6rem);
+    font-weight:500; line-height:1.12; letter-spacing:-0.01em;
+    margin-bottom:22px;
+  }
+  .sub{
+    font-size:1.15rem; color:#4A5561; max-width:520px; margin:0 auto 40px;
+  }
+  .horizon{
+    width:100%; height:1px; background:linear-gradient(90deg, transparent, var(--teal), transparent);
+    margin:56px 0; opacity:0.5;
+  }
+
+  .cta{
+    display:inline-block; background:var(--ink); color:var(--paper);
+    padding:15px 34px; border-radius:2px; text-decoration:none;
+    font-size:0.98rem; font-weight:500; letter-spacing:0.01em;
+    transition:background 0.2s ease;
+  }
+  .cta:hover{background:var(--teal);}
+  .cta-note{font-size:0.85rem; color:#8A9298; margin-top:14px;}
+
+  section{max-width:900px; margin:0 auto; padding:6vh 6vw;}
+  .how{
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:36px;
+    padding-top:4vh;
+  }
+  .step{border-top:1px solid var(--line); padding-top:20px;}
+  .step .label{font-family:'Fraunces', serif; font-size:1.2rem; margin-bottom:10px;}
+  .step p{color:#4A5561; font-size:0.95rem;}
+
+  .pricing{
+    display:grid; grid-template-columns:1fr 1fr; gap:24px; padding-top:2vh;
+  }
+  .plan{
+    border:1px solid var(--line); padding:32px; background:#fff;
+  }
+  .plan.featured{border-color:var(--teal); background:var(--teal-soft);}
+  .plan h3{font-family:'Fraunces', serif; font-size:1.4rem; margin-bottom:6px;}
+  .price{font-size:2rem; font-family:'Fraunces', serif; margin:14px 0;}
+  .price span{font-size:1rem; color:#4A5561;}
+  .plan ul{list-style:none; margin:20px 0; color:#4A5561; font-size:0.92rem;}
+  .plan li{padding:6px 0; border-bottom:1px solid var(--line);}
+  .plan .cta{width:100%; text-align:center; background:var(--ink); color:#fff; margin-top:10px;}
+  .plan.featured .cta{background:var(--teal);}
+
+  footer{
+    border-top:1px solid var(--line); padding:40px 6vw;
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:0.85rem; color:#8A9298;
+  }
+  footer a{color:#8A9298; margin-left:20px; text-decoration:none;}
+
+  @media (max-width:640px){
+    .how, .pricing{grid-template-columns:1fr;}
+    footer{flex-direction:column; gap:14px; text-align:center;}
+    footer a{margin:0 10px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Filtersight</div>
+  <nav>
+    <a href="#how">How it works</a>
+    <a href="#pricing">Pricing</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <div class="eyebrow">A quieter kind of accountability</div>
+  <h1 class="display">Fight for a better you.</h1>
+  <p class="sub">Filtersight blocks adult content system-wide on your iPhone — and tells someone the moment you try to get around it. Not a lock. A witness.</p>
+  <a href="#pricing" class="cta">Get started</a>
+  <div class="cta-note">Takes 2 minutes to set up. Cancel anytime.</div>
+</div>
+
+<div class="horizon"></div>
+
+<section id="how">
+  <div class="eyebrow">How it works</div>
+  <h2 class="display" style="font-size:1.8rem; margin-top:10px;">Three steps, five minutes</h2>
+  <div class="how">
+    <div class="step">
+      <div class="label">01 — Install</div>
+      <p>Download your profile and install it once, right from Safari. No app to manage, no login to remember.</p>
+    </div>
+    <div class="step">
+      <div class="label">02 — Filter</div>
+      <p>Every device on your filter runs through a clean DNS layer that blocks adult content before it loads.</p>
+    </div>
+    <div class="step">
+      <div class="label">03 — Notify</div>
+      <p>Try to slip past it, and your accountability contact gets a call or text. Nothing sneaks by quietly.</p>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="eyebrow">Pricing</div>
+  <h2 class="display" style="font-size:1.8rem; margin-top:10px; margin-bottom:10px;">Start simple. Add accountability when you're ready.</h2>
+  <div class="pricing">
+    <div class="plan">
+      <h3>Filter</h3>
+      <div class="price">$5<span>/mo</span></div>
+      <ul>
+        <li>System-wide content filtering</li>
+        <li>Works across Safari and apps</li>
+        <li>Cancel anytime</li>
+      </ul>
+      <a href="#" class="cta">Choose Filter</a>
+    </div>
+    <div class="plan featured">
+      <h3>Filter + Accountability</h3>
+      <div class="price">$10<span>/mo</span></div>
+      <ul>
+        <li>Everything in Filter</li>
+        <li>Real-time call or text on bypass attempts</li>
+        <li>Choose your own accountability contact</li>
+      </ul>
+      <a href="#" class="cta">Choose Filter + Accountability</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div>© 2026 Filtersight</div>
+  <div>
+    <a href="terms.html">Terms</a>
+    <a href="privacy.html">Privacy</a>
+  </div>
+</footer>
+
+</body>
+</html>
