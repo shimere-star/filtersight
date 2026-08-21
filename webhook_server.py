@@ -16,6 +16,7 @@ import random
 import sqlite3
 import stripe
 from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
 from twilio.rest import Client as TwilioClient
 from encouragement_messages import ENCOURAGEMENT_MESSAGES
 from chatbot import get_chat_response
@@ -187,9 +188,14 @@ async def notify_attempt(email: str):
 # the chat after a bypass attempt (in addition to, or instead of, texting
 # their accountability contact — you decide the flow).
 # ---------------------------------------------------------------------------
+class ChatRequest(BaseModel):
+    message: str
+    history: list = None
+
+
 @app.post("/chat")
-async def chat(message: str, history: list = None):
-    reply = get_chat_response(message, conversation_history=history)
+async def chat(body: ChatRequest):
+    reply = get_chat_response(body.message, conversation_history=body.history)
     return {"reply": reply}
 
 
