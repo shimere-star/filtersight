@@ -24,6 +24,8 @@ TIERS = {
         "description": "Filter only. Fully private. No partner, no AI companion.",
         "needs_own_phone": False,
         "needs_partner_phone": False,
+        "has_chat": False,
+        "has_partner": False,
     },
     "tier2": {
         "label": "Filter + Companion — $10/mo",
@@ -31,6 +33,8 @@ TIERS = {
         "description": "Filter + self-encouragement texts to your own phone + AI chat companion.",
         "needs_own_phone": True,
         "needs_partner_phone": False,
+        "has_chat": True,
+        "has_partner": False,
     },
     "tier3": {
         "label": "Complete — $13/mo",
@@ -38,6 +42,8 @@ TIERS = {
         "description": "Everything in Filter + Companion, plus an accountability partner is notified too.",
         "needs_own_phone": True,
         "needs_partner_phone": True,
+        "has_chat": True,
+        "has_partner": True,
     },
 }
 
@@ -207,6 +213,110 @@ else:
                         )
                         if resp.ok:
                             st.success("Saved. You're all set.")
+                        else:
+                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
+                    except requests.RequestException as e:
+                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+
+        # -------------------------------------------------------------
+        # STEP 4: AI companion chat — Tier 2 and Tier 3 only. Tier 1
+        # never sees this section at all.
+        # -------------------------------------------------------------
+        if tier_info["has_chat"]:
+            st.divider()
+            st.subheader("Talk to your companion")
+            st.caption("For urges, cravings, or just talking something through. Not a general assistant.")
+
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            user_message = st.chat_input("Type a message...")
+            if user_message:
+                st.session_state.chat_history.append({"role": "user", "content": user_message})
+                with st.chat_message("user"):
+                    st.write(user_message)
+
+                with st.chat_message("assistant"):
+                    with st.spinner("..."):
+                        try:
+                            resp = requests.post(
+                                f"{BACKEND_URL}/chat",
+                                json={
+                                    "message": user_message,
+                                    "history": st.session_state.chat_history,
+                                },
+                                timeout=30,
+                            )
+                            if resp.ok:
+                                reply = resp.json().get("reply", "Sorry, something went wrong. Try again?")
+                            else:
+                                reply = "Couldn't reach the chat right now. Try again in a moment."
+                        except requests.RequestException:
+                            reply = "Couldn't reach the chat right now. Try again in a moment."
+                        st.write(reply)
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+        # -------------------------------------------------------------
+        # STEP 5: Cancellation — available to every tier, but the path
+        # differs. Tier 3 can notify their accountability partner instead
+        # of paying. Tier 1 and Tier 2 always go through the small fee,
+        # since they have no partner on file.
+        # -------------------------------------------------------------
+        st.divider()
+        with st.expander("Manage subscription"):
+            st.write("Canceling isn't instant — it's a small, intentional step, on purpose.")
+
+            if tier_info["has_partner"]:
+                st.write(
+                    "Since you're on the Complete plan, canceling will notify your "
+                    "accountability partner instead of charging a fee."
+                )
+                if st.button("Cancel my subscription"):
+                    try:
+                        resp = requests.post(
+                            f"{BACKEND_URL}/request-cancellation",
+                            params={
+                                "email": customer_email or email,
+                                "notify_contact_instead_of_paying": True,
+                            },
+                            timeout=10,
+                        )
+                        if resp.ok:
+                            data = resp.json()
+                            if data.get("status") == "contact_notified":
+                                st.success("Your accountability partner has been notified. Cancellation will proceed after that.")
+                            else:
+                                st.info(str(data))
+                        else:
+                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
+                    except requests.RequestException as e:
+                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+            else:
+                st.write(
+                    "Canceling requires a small $5 processing fee — this plan doesn't "
+                    "have an accountability partner on file to notify instead."
+                )
+                if st.button("Proceed to cancellation fee"):
+                    try:
+                        resp = requests.post(
+                            f"{BACKEND_URL}/request-cancellation",
+                            params={
+                                "email": customer_email or email,
+                                "notify_contact_instead_of_paying": False,
+                            },
+                            timeout=10,
+                        )
+                        if resp.ok:
+                            data = resp.json()
+                            checkout_url = data.get("checkout_url")
+                            if checkout_url:
+                                st.link_button("Pay $5 cancellation fee", checkout_url)
+                            else:
+                                st.info(str(data))
                         else:
                             st.error(f"Backend error: {resp.status_code} — {resp.text}")
                     except requests.RequestException as e:
