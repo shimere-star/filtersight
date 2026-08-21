@@ -107,6 +107,8 @@ else:
 
     if not paid:
         st.error("We couldn't verify this payment. If you were just charged, contact support.")
+        if verify_error:
+            st.caption(f"Debug info: {verify_error}")
     else:
         st.success(f"Payment verified for {customer_email}. Your profile is ready.")
 
