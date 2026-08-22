@@ -96,7 +96,7 @@ else:
         session = stripe.checkout.Session.retrieve(session_id)
         paid = session.payment_status == "paid"
         customer_email = session.customer_details.email if session.customer_details else email
-        tier_key = (session.metadata or {}).get("tier", "tier1")
+        tier_key = dict(session.metadata or {}).get("tier", "tier1")
     except Exception as e:
         paid = False
         customer_email = None
