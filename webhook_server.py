@@ -16,6 +16,7 @@ import random
 import sqlite3
 import datetime
 import stripe
+import requests
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from twilio.rest import Client as TwilioClient
