@@ -14,6 +14,7 @@ Run with: uvicorn webhook_server:app --host 0.0.0.0 --port 8000
 import os
 import random
 import sqlite3
+import datetime
 import stripe
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
@@ -31,6 +32,14 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")  # your Twilio number
 
 twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else None
+
+# --- NextDNS config (for real-time bypass detection) --------------------
+NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
+NEXTDNS_PROFILE_ID = os.environ.get("NEXTDNS_PROFILE_ID")
+# TEMPORARY: single-profile testing only. Real multi-customer support needs
+# a NextDNS profile created per customer at signup, with the profile ID
+# stored on their row instead of one shared TEST_CUSTOMER_EMAIL.
+TEST_CUSTOMER_EMAIL = os.environ.get("TEST_CUSTOMER_EMAIL")
 
 DB_PATH = "filtersight.db"
 
@@ -55,6 +64,16 @@ def get_db():
         conn.execute("ALTER TABLE customers ADD COLUMN tier TEXT DEFAULT 'tier1'")
     if "user_phone" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN user_phone TEXT")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS nextdns_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_checked_at TEXT
+        )
+    """)
+    conn.execute(
+        "INSERT OR IGNORE INTO nextdns_state (id, last_checked_at) VALUES (1, ?)",
+        (datetime.datetime.utcnow().isoformat(),),
+    )
     conn.commit()
     return conn
 
@@ -184,6 +203,83 @@ async def notify_attempt(email: str):
 
 
 # ---------------------------------------------------------------------------
+# 3b. Poll NextDNS logs for real blocked adult-content attempts and notify.
+#
+# Call this on a schedule (Railway cron, or an external service like
+# cron-job.org hitting this endpoint every few minutes). It fetches recent
+# NextDNS log entries, finds new ones blocked under the "porn" category,
+# and fires the same tier-aware notification as /notify-attempt.
+#
+# TEMPORARY LIMITATION: this checks ONE NextDNS profile (NEXTDNS_PROFILE_ID)
+# and routes every match to TEST_CUSTOMER_EMAIL. That's fine for proving the
+# mechanism works with a single test customer, but real multi-customer
+# support needs a NextDNS profile created per signup, with that profile's ID
+# stored on the customer's row so each customer's own attempts route to them.
+# ---------------------------------------------------------------------------
+@app.post("/poll-nextdns-and-notify")
+async def poll_nextdns_and_notify():
+    if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
+        raise HTTPException(status_code=500, detail="NextDNS not configured")
+
+    db = get_db()
+    row = db.execute("SELECT last_checked_at FROM nextdns_state WHERE id = 1").fetchone()
+    last_checked_at = row[0] if row else None
+    now = datetime.datetime.utcnow().isoformat()
+
+    try:
+        resp = requests.get(
+            f"https://api.nextdns.io/profiles/{NEXTDNS_PROFILE_ID}/logs",
+            headers={"X-Api-Key": NEXTDNS_API_KEY},
+            params={"limit": 50},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        logs = resp.json().get("data", [])
+    except requests.RequestException as e:
+        db.close()
+        raise HTTPException(status_code=502, detail=f"Couldn't reach NextDNS: {e}")
+
+    notified = []
+    for entry in logs:
+        entry_time = entry.get("timestamp")
+        if last_checked_at and entry_time and entry_time <= last_checked_at:
+            continue
+
+        status = entry.get("status")
+        reasons = entry.get("reasons", [])
+        is_porn_block = status == "blocked" and any(r.get("id") == "porn" for r in reasons)
+
+        if is_porn_block and TEST_CUSTOMER_EMAIL:
+            crow = db.execute(
+                "SELECT tier, user_phone, accountability_phone FROM customers WHERE email = ?",
+                (TEST_CUSTOMER_EMAIL,),
+            ).fetchone()
+            if crow and twilio_client:
+                tier, user_phone, accountability_phone = crow
+                if tier != "tier1":
+                    if user_phone:
+                        self_message = random.choice(ENCOURAGEMENT_MESSAGES)
+                        twilio_client.messages.create(
+                            to=user_phone,
+                            from_=TWILIO_FROM_NUMBER,
+                            body=f"Filtersight: {self_message}",
+                        )
+                        notified.append({"recipient": "user", "domain": entry.get("domain")})
+                    if tier == "tier3" and accountability_phone:
+                        twilio_client.messages.create(
+                            to=accountability_phone,
+                            from_=TWILIO_FROM_NUMBER,
+                            body="Filtersight: your accountability partner had a filter bypass attempt just now.",
+                        )
+                        notified.append({"recipient": "partner", "domain": entry.get("domain")})
+
+    db.execute("UPDATE nextdns_state SET last_checked_at = ? WHERE id = 1", (now,))
+    db.commit()
+    db.close()
+    return {"status": "polled", "notified": notified}
+
+
+# ---------------------------------------------------------------------------
 # 4. In-the-moment support chat. The frontend calls this when someone opens
 # the chat after a bypass attempt (in addition to, or instead of, texting
 # their accountability contact — you decide the flow).
@@ -213,7 +309,6 @@ async def chat(body: ChatRequest):
 # Removal alerts go to whichever number(s) the tier actually has on file —
 # tier1 has none, so nothing fires for them.
 # ---------------------------------------------------------------------------
-import datetime
 
 REMOVAL_SILENCE_HOURS = 8  # tune based on real usage patterns once you have data
 
