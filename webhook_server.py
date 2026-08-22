@@ -243,6 +243,7 @@ async def poll_nextdns_and_notify():
         raise HTTPException(status_code=502, detail=f"Couldn't reach NextDNS: {e}")
 
     notified = []
+    debug_blocked = []
     for entry in logs:
         entry_time = entry.get("timestamp")
         if last_checked_at and entry_time and entry_time <= last_checked_at:
@@ -250,6 +251,8 @@ async def poll_nextdns_and_notify():
 
         status = entry.get("status")
         reasons = entry.get("reasons", [])
+        if status == "blocked":
+            debug_blocked.append({"domain": entry.get("domain"), "reasons": reasons})
         is_porn_block = status == "blocked" and any(
             "porn" in (r.get("id") or "").lower() for r in reasons
         )
@@ -281,7 +284,7 @@ async def poll_nextdns_and_notify():
     db.execute("UPDATE nextdns_state SET last_checked_at = ? WHERE id = 1", (now,))
     db.commit()
     db.close()
-    return {"status": "polled", "notified": notified}
+    return {"status": "polled", "notified": notified, "debug_blocked": debug_blocked, "debug_total_logs": len(logs)}
 
 
 # ---------------------------------------------------------------------------
