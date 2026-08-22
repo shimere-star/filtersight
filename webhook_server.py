@@ -244,6 +244,10 @@ async def poll_nextdns_and_notify():
 
     notified = []
     debug_blocked = []
+    debug_sample = [
+        {"domain": e.get("domain"), "status": e.get("status"), "timestamp": e.get("timestamp")}
+        for e in logs[:5]
+    ]
     for entry in logs:
         entry_time = entry.get("timestamp")
         if last_checked_at and entry_time and entry_time <= last_checked_at:
@@ -284,7 +288,14 @@ async def poll_nextdns_and_notify():
     db.execute("UPDATE nextdns_state SET last_checked_at = ? WHERE id = 1", (now,))
     db.commit()
     db.close()
-    return {"status": "polled", "notified": notified, "debug_blocked": debug_blocked, "debug_total_logs": len(logs)}
+    return {
+        "status": "polled",
+        "notified": notified,
+        "debug_blocked": debug_blocked,
+        "debug_total_logs": len(logs),
+        "debug_last_checked_at": last_checked_at,
+        "debug_sample": debug_sample,
+    }
 
 
 # ---------------------------------------------------------------------------
