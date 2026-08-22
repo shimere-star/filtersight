@@ -98,9 +98,11 @@ async def stripe_webhook(request: Request):
     db = get_db()
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        email = session.get("customer_details", {}).get("email")
-        customer_id = session.get("customer")
-        tier = (session.get("metadata") or {}).get("tier", "tier1")
+        customer_details = session.customer_details
+        email = customer_details.email if customer_details else None
+        customer_id = session.customer
+        metadata = session.metadata
+        tier = metadata.to_dict().get("tier", "tier1") if metadata else "tier1"
         if email:
             db.execute(
                 """INSERT INTO customers (email, stripe_customer_id, active, tier)
@@ -114,7 +116,7 @@ async def stripe_webhook(request: Request):
             db.commit()
 
     elif event["type"] == "customer.subscription.deleted":
-        customer_id = event["data"]["object"].get("customer")
+        customer_id = event["data"]["object"].customer
         db.execute("UPDATE customers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
         db.commit()
 
@@ -249,8 +251,9 @@ async def poll_nextdns_and_notify():
         status = entry.get("status")
         reasons = entry.get("reasons", [])
         is_porn_block = status == "blocked" and any(
-"porn" in (r.get("id") or "").lower() for r in reasons
-)
+            "porn" in (r.get("id") or "").lower() for r in reasons
+        )
+
         if is_porn_block and TEST_CUSTOMER_EMAIL:
             crow = db.execute(
                 "SELECT tier, user_phone, accountability_phone FROM customers WHERE email = ?",
