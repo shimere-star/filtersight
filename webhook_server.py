@@ -249,8 +249,8 @@ async def poll_nextdns_and_notify():
         status = entry.get("status")
         reasons = entry.get("reasons", [])
         is_porn_block = status == "blocked" and any(
-    "porn" in (r.get("id") or "").lower() for r in reasons
-
+"porn" in (r.get("id") or "").lower() for r in reasons
+)
         if is_porn_block and TEST_CUSTOMER_EMAIL:
             crow = db.execute(
                 "SELECT tier, user_phone, accountability_phone FROM customers WHERE email = ?",
