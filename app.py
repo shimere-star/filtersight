@@ -3,6 +3,7 @@ import stripe
 import uuid
 import os
 import requests
+import traceback
 
 # ---------------------------------------------------------------------------
 # SETUP: Set these as environment variables (never hardcode real keys in code
@@ -98,6 +99,7 @@ else:
         customer_email = session.customer_details.email if session.customer_details else email
         tier_key = session.metadata.to_dict().get("tier", "tier1") if session.metadata else "tier1"
     except Exception as e:
+        traceback.print_exc()
         paid = False
         customer_email = None
         tier_key = "tier1"
@@ -147,7 +149,7 @@ else:
     <key>PayloadDisplayName</key>
     <string>Filtersight</string>
     <key>PayloadDescription</key>
-    <string>System-wide DNS-over-HTTPS filter blocking adult content</string>
+    <string>System-wide DNS-over-HTTPS content filtering</string>
     <key>PayloadIdentifier</key>
     <string>com.filtersight.filter.{safe_email}</string>
     <key>PayloadOrganization</key>
