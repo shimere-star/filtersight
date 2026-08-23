@@ -233,7 +233,8 @@ async def poll_nextdns_and_notify():
         resp = requests.get(
             f"https://api.nextdns.io/profiles/{NEXTDNS_PROFILE_ID}/logs",
             headers={"X-Api-Key": NEXTDNS_API_KEY},
-            params={"limit": 50},
+            params={"status": "blocked", "limit": 100, "sort": "desc"},
+
             timeout=15,
         )
         resp.raise_for_status()
