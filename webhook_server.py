@@ -189,7 +189,7 @@ async def notify_attempt(email: str):
         twilio_client.messages.create(
             to=user_phone,
             from_=TWILIO_FROM_NUMBER,
-            body=f"Filtersight: {self_message}",
+            body=f"Filtersight: {self_message} Reply STOP to opt out.",
         )
         notified.append("user")
 
@@ -198,7 +198,7 @@ async def notify_attempt(email: str):
         twilio_client.messages.create(
             to=accountability_phone,
             from_=TWILIO_FROM_NUMBER,
-            body=f"Filtersight: your accountability partner had a filter bypass attempt just now.",
+            body=f"Filtersight: your accountability partner had a filter bypass attempt just now. Reply STOP to opt out.",
         )
         notified.append("partner")
 
@@ -275,14 +275,14 @@ async def poll_nextdns_and_notify():
                         twilio_client.messages.create(
                             to=user_phone,
                             from_=TWILIO_FROM_NUMBER,
-                            body=f"Filtersight: {self_message}",
+                            body=f"Filtersight: {self_message} Reply STOP to opt out.",
                         )
                         notified.append({"recipient": "user", "domain": entry.get("domain")})
                     if tier == "tier3" and accountability_phone:
                         twilio_client.messages.create(
                             to=accountability_phone,
                             from_=TWILIO_FROM_NUMBER,
-                            body="Filtersight: your accountability partner had a filter bypass attempt just now.",
+                            body="Filtersight: your accountability partner had a filter bypass attempt just now. Reply STOP to opt out.",
                         )
                         notified.append({"recipient": "partner", "domain": entry.get("domain")})
 
@@ -367,9 +367,9 @@ async def check_for_removed_profiles():
             f"removed or disabled — no activity in the last {REMOVAL_SILENCE_HOURS} hours."
         )
         if user_phone:
-            twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=body)
+            twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
         if tier == "tier3" and accountability_phone:
-            twilio_client.messages.create(to=accountability_phone, from_=TWILIO_FROM_NUMBER, body=body)
+            twilio_client.messages.create(to=accountability_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
         notified.append(email)
     db.close()
     return {"notified": notified}
@@ -400,7 +400,7 @@ async def request_cancellation(email: str, notify_contact_instead_of_paying: boo
             to=accountability_phone,
             from_=TWILIO_FROM_NUMBER,
             body=f"Filtersight: {email} has requested to cancel their filter. "
-                 f"Reaching out to check in is up to you.",
+                 f"Reaching out to check in is up to you. Reply STOP to opt out.",
         )
         db.close()
         return {"status": "contact_notified", "next_step": "cancellation will proceed after notice"}
