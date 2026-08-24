@@ -17,9 +17,11 @@ import sqlite3
 import datetime
 import stripe
 import requests
-from fastapi import FastAPI, Request, HTTPException
+from urllib.parse import parse_qs
+from fastapi import FastAPI, Request, HTTPException, Response
 from pydantic import BaseModel
 from twilio.rest import Client as TwilioClient
+from twilio.twiml.messaging_response import MessagingResponse
 from encouragement_messages import ENCOURAGEMENT_MESSAGES
 from chatbot import get_chat_response
 
@@ -55,6 +57,8 @@ def get_db():
             tier TEXT DEFAULT 'tier1',
             user_phone TEXT,
             accountability_phone TEXT,
+            user_sms_opted_in INTEGER DEFAULT 1,
+            accountability_sms_opted_in INTEGER DEFAULT 1,
             last_dns_seen TEXT,
             removal_fee_paid INTEGER DEFAULT 0
         )
@@ -65,6 +69,10 @@ def get_db():
         conn.execute("ALTER TABLE customers ADD COLUMN tier TEXT DEFAULT 'tier1'")
     if "user_phone" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN user_phone TEXT")
+    if "user_sms_opted_in" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_opted_in INTEGER DEFAULT 1")
+    if "accountability_sms_opted_in" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN accountability_sms_opted_in INTEGER DEFAULT 1")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS nextdns_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -144,6 +152,99 @@ async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", ac
 
 
 # ---------------------------------------------------------------------------
+# 2b. Twilio inbound SMS webhook.
+# Twilio sends form-encoded fields including From and Body.
+# SMS opt-in state is tracked separately for the user's phone and the
+# accountability partner's phone so STOP from one recipient does not
+# accidentally unsubscribe the other recipient or cancel the paid plan.
+# ---------------------------------------------------------------------------
+OPT_IN_KEYWORDS = {"START", "YES", "UNSTOP"}
+OPT_OUT_KEYWORDS = {
+    "CANCEL",
+    "QUIT",
+    "STOP",
+    "OPTOUT",
+    "UNSUBSCRIBE",
+    "STOPALL",
+    "REVOKE",
+    "END",
+}
+HELP_KEYWORDS = {"HELP", "INFO"}
+
+OPT_IN_MESSAGE = "Filtersight: You are now opted-in. For help, reply HELP. To opt-out, reply STOP."
+OPT_OUT_MESSAGE = "You have successfully been unsubscribed. You will not receive any more messages from this number. Reply START to resubscribe."
+HELP_MESSAGE = "Reply STOP to unsubscribe. Msg&Data Rates May Apply."
+
+
+def twiml_response(message: str) -> Response:
+    response = MessagingResponse()
+    if message:
+        response.message(message)
+    return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/sms-webhook")
+async def sms_webhook(request: Request):
+    payload = await request.body()
+    form = parse_qs(payload.decode("utf-8"), keep_blank_values=True)
+
+    from_number = form.get("From", [""])[0].strip()
+    message_body = form.get("Body", [""])[0].strip().upper()
+
+    db = get_db()
+    try:
+        row = db.execute(
+            """
+            SELECT email, user_phone, accountability_phone,
+                   user_sms_opted_in, accountability_sms_opted_in
+            FROM customers
+            WHERE user_phone = ? OR accountability_phone = ?
+            LIMIT 1
+            """,
+            (from_number, from_number),
+        ).fetchone()
+
+        if message_body in OPT_OUT_KEYWORDS:
+            if row:
+                email, user_phone, accountability_phone, _, _ = row
+                if from_number == user_phone:
+                    db.execute(
+                        "UPDATE customers SET user_sms_opted_in = 0 WHERE email = ?",
+                        (email,),
+                    )
+                elif from_number == accountability_phone:
+                    db.execute(
+                        "UPDATE customers SET accountability_sms_opted_in = 0 WHERE email = ?",
+                        (email,),
+                    )
+                db.commit()
+            return twiml_response(OPT_OUT_MESSAGE)
+
+        if message_body in OPT_IN_KEYWORDS:
+            if row:
+                email, user_phone, accountability_phone, _, _ = row
+                if from_number == user_phone:
+                    db.execute(
+                        "UPDATE customers SET user_sms_opted_in = 1 WHERE email = ?",
+                        (email,),
+                    )
+                elif from_number == accountability_phone:
+                    db.execute(
+                        "UPDATE customers SET accountability_sms_opted_in = 1 WHERE email = ?",
+                        (email,),
+                    )
+                db.commit()
+            return twiml_response(OPT_IN_MESSAGE)
+
+        if message_body in HELP_KEYWORDS:
+            return twiml_response(HELP_MESSAGE)
+
+        return twiml_response("")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # 3. Trigger a notification when a blocked-content attempt is detected.
 #
 # Tier-aware routing:
@@ -169,22 +270,25 @@ async def notify_attempt(email: str):
 
     db = get_db()
     row = db.execute(
-        "SELECT tier, user_phone, accountability_phone FROM customers WHERE email = ?", (email,)
+        """SELECT tier, user_phone, accountability_phone,
+                  user_sms_opted_in, accountability_sms_opted_in
+           FROM customers WHERE email = ?""",
+        (email,),
     ).fetchone()
     db.close()
 
     if not row:
         return {"status": "no_customer_found"}
 
-    tier, user_phone, accountability_phone = row
+    tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in = row
     notified = []
 
     # tier1: filter-only, no texts of any kind.
     if tier == "tier1":
         return {"status": "no_notifications_for_tier1"}
 
-    # tier2 and tier3 both text the user themselves.
-    if user_phone:
+    # tier2 and tier3 both text the user themselves, unless opted out.
+    if user_phone and user_sms_opted_in:
         self_message = random.choice(ENCOURAGEMENT_MESSAGES)
         twilio_client.messages.create(
             to=user_phone,
@@ -193,8 +297,8 @@ async def notify_attempt(email: str):
         )
         notified.append("user")
 
-    # Only tier3 also notifies the accountability partner.
-    if tier == "tier3" and accountability_phone:
+    # Only tier3 also notifies the accountability partner, unless opted out.
+    if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
         twilio_client.messages.create(
             to=accountability_phone,
             from_=TWILIO_FROM_NUMBER,
@@ -264,13 +368,15 @@ async def poll_nextdns_and_notify():
 
         if is_porn_block and TEST_CUSTOMER_EMAIL:
             crow = db.execute(
-                "SELECT tier, user_phone, accountability_phone FROM customers WHERE email = ?",
+                """SELECT tier, user_phone, accountability_phone,
+                          user_sms_opted_in, accountability_sms_opted_in
+                   FROM customers WHERE email = ?""",
                 (TEST_CUSTOMER_EMAIL,),
             ).fetchone()
             if crow and twilio_client:
-                tier, user_phone, accountability_phone = crow
+                tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in = crow
                 if tier != "tier1":
-                    if user_phone:
+                    if user_phone and user_sms_opted_in:
                         self_message = random.choice(ENCOURAGEMENT_MESSAGES)
                         twilio_client.messages.create(
                             to=user_phone,
@@ -278,7 +384,7 @@ async def poll_nextdns_and_notify():
                             body=f"Filtersight: {self_message} Reply STOP to opt out.",
                         )
                         notified.append({"recipient": "user", "domain": entry.get("domain")})
-                    if tier == "tier3" and accountability_phone:
+                    if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
                         twilio_client.messages.create(
                             to=accountability_phone,
                             from_=TWILIO_FROM_NUMBER,
@@ -354,21 +460,23 @@ async def check_for_removed_profiles():
     db = get_db()
     cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=REMOVAL_SILENCE_HOURS)).isoformat()
     rows = db.execute(
-        "SELECT email, tier, user_phone, accountability_phone FROM customers WHERE active = 1 AND last_dns_seen < ?",
+        """SELECT email, tier, user_phone, accountability_phone,
+                  user_sms_opted_in, accountability_sms_opted_in
+           FROM customers WHERE active = 1 AND last_dns_seen < ?""",
         (cutoff,),
     ).fetchall()
 
     notified = []
-    for email, tier, user_phone, accountability_phone in rows:
+    for email, tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in in rows:
         if tier == "tier1":
             continue
         body = (
             f"Filtersight: it looks like the filter on {email}'s device may have been "
             f"removed or disabled — no activity in the last {REMOVAL_SILENCE_HOURS} hours."
         )
-        if user_phone:
+        if user_phone and user_sms_opted_in:
             twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
-        if tier == "tier3" and accountability_phone:
+        if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
             twilio_client.messages.create(to=accountability_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
         notified.append(email)
     db.close()
