@@ -70,6 +70,8 @@ if query_params.get("session_id") is None:
     )
     st.caption(TIERS[tier_key]["description"])
 
+    st.caption("By subscribing, you consent to receive account and safety-related SMS notifications from Filtersight. Message frequency varies based on account activity. Message and data rates may apply. Reply STOP to opt out, HELP for help.")
+
     if st.button("Continue to payment"):
         selected_price_id = TIERS[tier_key]["price_id"]
         if not email:
