@@ -44,7 +44,7 @@ NEXTDNS_PROFILE_ID = os.environ.get("NEXTDNS_PROFILE_ID")
 # stored on their row instead of one shared TEST_CUSTOMER_EMAIL.
 TEST_CUSTOMER_EMAIL = os.environ.get("TEST_CUSTOMER_EMAIL")
 
-DB_PATH = "filtersight.db"
+DB_PATH = "/data/customers.db"
 
 
 def get_db():
