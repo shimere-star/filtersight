@@ -55,6 +55,7 @@ st.write("Block adult content system-wide, with accountability built in. From $5
 
 query_params = st.query_params
 email = st.text_input("Email address")
+normalized_email = email.strip().lower()
 
 # ---------------------------------------------------------------------------
 # STEP 1: Pick a tier, then send the customer to real Stripe Checkout
@@ -74,14 +75,14 @@ if query_params.get("session_id") is None:
 
     if st.button("Continue to payment"):
         selected_price_id = TIERS[tier_key]["price_id"]
-        if not email:
+        if not normalized_email:
             st.error("Enter an email first.")
         elif not stripe.api_key or not selected_price_id:
             st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price IDs.")
         else:
             session = stripe.checkout.Session.create(
                 mode="subscription",
-                customer_email=email,
+                customer_email=normalized_email,
                 line_items=[{"price": selected_price_id, "quantity": 1}],
                 success_url=f"{APP_BASE_URL}/?session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=APP_BASE_URL,
@@ -99,7 +100,11 @@ else:
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         paid = session.payment_status == "paid"
-        customer_email = session.customer_details.email if session.customer_details else email
+        customer_email = (
+            session.customer_details.email.strip().lower()
+            if session.customer_details and session.customer_details.email
+            else normalized_email
+        )
         tier_key = session.metadata.to_dict().get("tier", "tier1") if session.metadata else "tier1"
     except Exception as e:
         traceback.print_exc()
@@ -169,7 +174,7 @@ else:
 </plist>
 """
 
-        profile_xml = generate_mobileconfig(customer_email or email)
+        profile_xml = generate_mobileconfig(customer_email or normalized_email)
         st.download_button(
             label="Download Profile",
             data=profile_xml,
@@ -214,7 +219,7 @@ else:
                         resp = requests.post(
                             f"{BACKEND_URL}/save-contact",
                             params={
-                                "email": customer_email or email,
+                                "email": (customer_email or normalized_email).strip().lower(),
                                 "tier": tier_key,
                                 "user_phone": user_phone or "",
                                 "accountability_phone": partner_phone or "",
@@ -290,7 +295,7 @@ else:
                         resp = requests.post(
                             f"{BACKEND_URL}/request-cancellation",
                             params={
-                                "email": customer_email or email,
+                                "email": (customer_email or normalized_email).strip().lower(),
                                 "notify_contact_instead_of_paying": True,
                             },
                             timeout=10,
@@ -315,7 +320,7 @@ else:
                         resp = requests.post(
                             f"{BACKEND_URL}/request-cancellation",
                             params={
-                                "email": customer_email or email,
+                                "email": (customer_email or normalized_email).strip().lower(),
                                 "notify_contact_instead_of_paying": False,
                             },
                             timeout=10,
