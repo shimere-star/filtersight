@@ -107,7 +107,11 @@ async def stripe_webhook(request: Request):
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         customer_details = session.customer_details
-        email = customer_details.email if customer_details else None
+        email = (
+            customer_details.email.strip().lower()
+            if customer_details and customer_details.email
+            else None
+        )
         customer_id = session.customer
         metadata = session.metadata
         tier = metadata.to_dict().get("tier", "tier1") if metadata else "tier1"
@@ -139,6 +143,7 @@ async def stripe_webhook(request: Request):
 # ---------------------------------------------------------------------------
 @app.post("/save-contact")
 async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", accountability_phone: str = ""):
+    email = email.strip().lower()
     db = get_db()
     db.execute(
         """UPDATE customers
@@ -207,6 +212,7 @@ async def sms_webhook(request: Request):
         if message_body in OPT_OUT_KEYWORDS:
             if row:
                 email, user_phone, accountability_phone, _, _ = row
+                email = email.strip().lower()
                 if from_number == user_phone:
                     db.execute(
                         "UPDATE customers SET user_sms_opted_in = 0 WHERE email = ?",
@@ -223,6 +229,7 @@ async def sms_webhook(request: Request):
         if message_body in OPT_IN_KEYWORDS:
             if row:
                 email, user_phone, accountability_phone, _, _ = row
+                email = email.strip().lower()
                 if from_number == user_phone:
                     db.execute(
                         "UPDATE customers SET user_sms_opted_in = 1 WHERE email = ?",
@@ -265,6 +272,7 @@ async def sms_webhook(request: Request):
 # ---------------------------------------------------------------------------
 @app.post("/notify-attempt")
 async def notify_attempt(email: str):
+    email = email.strip().lower()
     if not twilio_client:
         raise HTTPException(status_code=500, detail="Twilio not configured")
 
@@ -328,6 +336,8 @@ async def poll_nextdns_and_notify():
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=500, detail="NextDNS not configured")
 
+    test_customer_email = TEST_CUSTOMER_EMAIL.strip().lower() if TEST_CUSTOMER_EMAIL else None
+
     db = get_db()
     row = db.execute("SELECT last_checked_at FROM nextdns_state WHERE id = 1").fetchone()
     last_checked_at = row[0] if row else None
@@ -366,12 +376,12 @@ async def poll_nextdns_and_notify():
             "porn" in (r.get("id") or "").lower() for r in reasons
         )
 
-        if is_porn_block and TEST_CUSTOMER_EMAIL:
+        if is_porn_block and test_customer_email:
             crow = db.execute(
                 """SELECT tier, user_phone, accountability_phone,
                           user_sms_opted_in, accountability_sms_opted_in
                    FROM customers WHERE email = ?""",
-                (TEST_CUSTOMER_EMAIL,),
+                (test_customer_email,),
             ).fetchone()
             if crow and twilio_client:
                 tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in = crow
@@ -441,6 +451,7 @@ REMOVAL_SILENCE_HOURS = 8  # tune based on real usage patterns once you have dat
 @app.post("/record-dns-activity")
 async def record_dns_activity(email: str):
     """Call this from a scheduled job that polls your DNS provider's log API."""
+    email = email.strip().lower()
     db = get_db()
     db.execute(
         "UPDATE customers SET last_dns_seen = ? WHERE email = ?",
@@ -495,6 +506,7 @@ REMOVAL_FEE_CENTS = 500  # $5 — adjust as you like
 
 @app.post("/request-cancellation")
 async def request_cancellation(email: str, notify_contact_instead_of_paying: bool = True):
+    email = email.strip().lower()
     db = get_db()
     row = db.execute(
         "SELECT tier, accountability_phone FROM customers WHERE email = ?", (email,)
