@@ -5,3 +5,4 @@ fastapi
 uvicorn[standard]
 twilio
 anthropic
+phonenumbers
