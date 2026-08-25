@@ -408,10 +408,6 @@ async def poll_nextdns_and_notify():
     return {
         "status": "polled",
         "notified": notified,
-        "debug_blocked": debug_blocked,
-        "debug_total_logs": len(logs),
-        "debug_last_checked_at": last_checked_at,
-        "debug_sample": debug_sample,
     }
 
 
