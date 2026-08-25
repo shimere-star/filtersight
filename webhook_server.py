@@ -170,6 +170,14 @@ def normalize_phone_e164(phone: str) -> str:
 @app.post("/save-contact")
 async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", accountability_phone: str = ""):
     email = email.strip().lower()
+    user_phone = normalize_phone_e164(user_phone)
+    accountability_phone = normalize_phone_e164(accountability_phone)
+
+    if user_phone and accountability_phone and user_phone == accountability_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="Accountability partner phone number cannot be the same as your own",
+        )
     db = get_db()
     db.execute(
         """UPDATE customers
