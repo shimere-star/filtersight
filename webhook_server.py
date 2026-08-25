@@ -56,6 +56,8 @@ def get_db():
             active INTEGER DEFAULT 1,
             tier TEXT DEFAULT 'tier1',
             user_phone TEXT,
+            partner_opt_in_status TEXT,
+            partner_opt_in_confirmed_at TEXT,
             accountability_phone TEXT,
             user_sms_opted_in INTEGER DEFAULT 1,
             accountability_sms_opted_in INTEGER DEFAULT 1,
@@ -73,7 +75,11 @@ def get_db():
         conn.execute("ALTER TABLE customers ADD COLUMN user_sms_opted_in INTEGER DEFAULT 1")
     if "accountability_sms_opted_in" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN accountability_sms_opted_in INTEGER DEFAULT 1")
-    conn.execute("""
+    if "partner_opt_in_status" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_status TEXT")
+    if "partner_opt_in_confirmed_at" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_confirmed_at TEXT")
+        conn.execute("""
         CREATE TABLE IF NOT EXISTS nextdns_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             last_checked_at TEXT
