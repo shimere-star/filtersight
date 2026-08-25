@@ -249,7 +249,8 @@ async def sms_webhook(request: Request):
         row = db.execute(
             """
             SELECT email, user_phone, accountability_phone,
-                   user_sms_opted_in, accountability_sms_opted_in
+                   user_sms_opted_in, accountability_sms_opted_in,
+                   partner_opt_in_status
             FROM customers
             WHERE user_phone = ? OR accountability_phone = ?
             LIMIT 1
@@ -259,44 +260,88 @@ async def sms_webhook(request: Request):
 
         if message_body in OPT_OUT_KEYWORDS:
             if row:
-                email, user_phone, accountability_phone, _, _ = row
+                (
+                    email,
+                    user_phone,
+                    accountability_phone,
+                    _,
+                    _,
+                    partner_opt_in_status,
+                ) = row
                 email = email.strip().lower()
-                if from_number == user_phone:
+
+                if from_number == accountability_phone:
+                    db.execute(
+                        """
+                        UPDATE customers
+                        SET accountability_sms_opted_in = 0,
+                            partner_opt_in_status = 'declined',
+                            partner_opt_in_confirmed_at = NULL
+                        WHERE email = ?
+                        """,
+                        (email,),
+                    )
+                elif from_number == user_phone:
                     db.execute(
                         "UPDATE customers SET user_sms_opted_in = 0 WHERE email = ?",
                         (email,),
                     )
-                elif from_number == accountability_phone:
-                    db.execute(
-                        "UPDATE customers SET accountability_sms_opted_in = 0 WHERE email = ?",
-                        (email,),
-                    )
+
                 db.commit()
+
             return twiml_response(OPT_OUT_MESSAGE)
 
         if message_body in OPT_IN_KEYWORDS:
             if row:
-                email, user_phone, accountability_phone, _, _ = row
+                (
+                    email,
+                    user_phone,
+                    accountability_phone,
+                    _,
+                    _,
+                    partner_opt_in_status,
+                ) = row
                 email = email.strip().lower()
-                if from_number == user_phone:
+
+                if (
+                    from_number == accountability_phone
+                    and partner_opt_in_status == "pending"
+                ):
+                    db.execute(
+                        """
+                        UPDATE customers
+                        SET accountability_sms_opted_in = 1,
+                            partner_opt_in_status = 'confirmed',
+                            partner_opt_in_confirmed_at = ?
+                        WHERE email = ?
+                        """,
+                        (datetime.datetime.utcnow().isoformat(), email),
+                    )
+                    db.commit()
+
+                    return twiml_response(
+                        "Filtersight: You are now confirmed as an accountability "
+                        "partner and will receive alerts if a bypass attempt is detected. "
+                        "Reply STOP to opt out."
+                    )
+
+                elif from_number == user_phone:
                     db.execute(
                         "UPDATE customers SET user_sms_opted_in = 1 WHERE email = ?",
                         (email,),
                     )
-                elif from_number == accountability_phone:
-                    db.execute(
-                        "UPDATE customers SET accountability_sms_opted_in = 1 WHERE email = ?",
-                        (email,),
-                    )
-                db.commit()
+                    db.commit()
+
             return twiml_response(OPT_IN_MESSAGE)
 
         if message_body in HELP_KEYWORDS:
             return twiml_response(HELP_MESSAGE)
 
         return twiml_response("")
+
     finally:
         db.close()
+
 
 
 # ---------------------------------------------------------------------------
