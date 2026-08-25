@@ -372,7 +372,8 @@ async def notify_attempt(email: str):
     db = get_db()
     row = db.execute(
         """SELECT tier, user_phone, accountability_phone,
-                  user_sms_opted_in, accountability_sms_opted_in
+                  user_sms_opted_in, accountability_sms_opted_in,
+                  partner_opt_in_status
            FROM customers WHERE email = ?""",
         (email,),
     ).fetchone()
@@ -381,7 +382,7 @@ async def notify_attempt(email: str):
     if not row:
         return {"status": "no_customer_found"}
 
-    tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in = row
+    tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in, partner_opt_in_status = row
     notified = []
 
     # tier1: filter-only, no texts of any kind.
@@ -399,7 +400,12 @@ async def notify_attempt(email: str):
         notified.append("user")
 
     # Only tier3 also notifies the accountability partner, unless opted out.
-    if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
+    if (
+        tier == "tier3"
+        and partner_opt_in_status == "confirmed"
+        and accountability_phone
+        and accountability_sms_opted_in
+    ):
         twilio_client.messages.create(
             to=accountability_phone,
             from_=TWILIO_FROM_NUMBER,
@@ -472,12 +478,13 @@ async def poll_nextdns_and_notify():
         if is_porn_block and test_customer_email:
             crow = db.execute(
                 """SELECT tier, user_phone, accountability_phone,
-                          user_sms_opted_in, accountability_sms_opted_in
+                          user_sms_opted_in, accountability_sms_opted_in,
+                          partner_opt_in_status
                    FROM customers WHERE email = ?""",
                 (test_customer_email,),
             ).fetchone()
             if crow and twilio_client:
-                tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in = crow
+                tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in, partner_opt_in_status = crow
                 if tier != "tier1":
                     if user_phone and user_sms_opted_in:
                         self_message = random.choice(ENCOURAGEMENT_MESSAGES)
@@ -487,7 +494,12 @@ async def poll_nextdns_and_notify():
                             body=f"Filtersight: {self_message} Reply STOP to opt out.",
                         )
                         notified.append({"recipient": "user", "domain": entry.get("domain")})
-                    if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
+                    if (
+                        tier == "tier3"
+                        and partner_opt_in_status == "confirmed"
+                        and accountability_phone
+                        and accountability_sms_opted_in
+                    ):
                         twilio_client.messages.create(
                             to=accountability_phone,
                             from_=TWILIO_FROM_NUMBER,
@@ -561,13 +573,14 @@ async def check_for_removed_profiles():
     cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=REMOVAL_SILENCE_HOURS)).isoformat()
     rows = db.execute(
         """SELECT email, tier, user_phone, accountability_phone,
-                  user_sms_opted_in, accountability_sms_opted_in
+                  user_sms_opted_in, accountability_sms_opted_in,
+                  partner_opt_in_status
            FROM customers WHERE active = 1 AND last_dns_seen < ?""",
         (cutoff,),
     ).fetchall()
 
     notified = []
-    for email, tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in in rows:
+    for email, tier, user_phone, accountability_phone, user_sms_opted_in, accountability_sms_opted_in, partner_opt_in_status in rows:
         if tier == "tier1":
             continue
         body = (
@@ -576,7 +589,12 @@ async def check_for_removed_profiles():
         )
         if user_phone and user_sms_opted_in:
             twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
-        if tier == "tier3" and accountability_phone and accountability_sms_opted_in:
+        if (
+            tier == "tier3"
+            and partner_opt_in_status == "confirmed"
+            and accountability_phone
+            and accountability_sms_opted_in
+        ):
             twilio_client.messages.create(to=accountability_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
         notified.append(email)
     db.close()
@@ -598,11 +616,15 @@ async def request_cancellation(email: str, notify_contact_instead_of_paying: boo
     email = email.strip().lower()
     db = get_db()
     row = db.execute(
-        "SELECT tier, accountability_phone FROM customers WHERE email = ?", (email,)
+        "SELECT tier, accountability_phone, partner_opt_in_status FROM customers WHERE email = ?", (email,)
     ).fetchone()
 
-    tier, accountability_phone = row if row else (None, None)
-    can_notify_partner = tier == "tier3" and accountability_phone
+    tier, accountability_phone, partner_opt_in_status = row if row else (None, None, None)
+    can_notify_partner = (
+        tier == "tier3"
+        and partner_opt_in_status == "confirmed"
+        and accountability_phone
+    )
 
     if notify_contact_instead_of_paying and can_notify_partner and twilio_client:
         twilio_client.messages.create(
