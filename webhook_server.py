@@ -170,21 +170,35 @@ def normalize_phone_e164(phone: str) -> str:
 @app.post("/save-contact")
 async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", accountability_phone: str = ""):
     email = email.strip().lower()
-    user_phone = normalize_phone_e164(user_phone)
-    accountability_phone = normalize_phone_e164(accountability_phone)
-
-    if user_phone and accountability_phone and user_phone == accountability_phone:
-        raise HTTPException(
-            status_code=400,
-            detail="Accountability partner phone number cannot be the same as your own",
-        )
     db = get_db()
     db.execute(
-        """UPDATE customers
-           SET tier = ?, user_phone = ?, accountability_phone = ?
-           WHERE email = ?""",
-        (tier, user_phone or None, accountability_phone or None, email),
+    """UPDATE customers
+       SET tier = ?, user_phone = ?, accountability_phone = ?
+       WHERE email = ?""",
+    (tier, user_phone or None, accountability_phone or None, email),
     )
+
+    if accountability_phone:
+    invite_message = (
+        f"Filtersight: {email.split('@')[0]} added you as their accountability "
+        "partner to receive text alerts if they try to bypass their content filter. "
+        "Reply YES to confirm, STOP to decline."
+    )
+
+    twilio_client.messages.create(
+        body=invite_message,
+        from_=TWILIO_FROM_NUMBER,
+        to=accountability_phone,
+    )
+
+    db.execute(
+        """UPDATE customers
+           SET partner_opt_in_status = 'pending',
+               partner_opt_in_confirmed_at = NULL
+           WHERE email = ?""",
+        (email,),
+    )
+
     db.commit()
     db.close()
     return {"status": "saved"}
