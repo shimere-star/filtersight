@@ -145,6 +145,24 @@ async def stripe_webhook(request: Request):
 
 
 # ---------------------------------------------------------------------------
+def normalize_phone_e164(phone: str) -> str:
+    phone = (phone or "").strip()
+    if not phone:
+        return ""
+
+    try:
+        parsed = phonenumbers.parse(phone, "US")
+    except NumberParseException:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    if not phonenumbers.is_valid_number(parsed):
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    return phonenumbers.format_number(
+        parsed,
+        phonenumbers.PhoneNumberFormat.E164,
+    )
+
 # 2. Save a customer's phone number(s) for their tier.
 # Called from the Streamlit app after the "Save phone number(s)" step.
 # tier2 sends user_phone only; tier3 sends both. tier1 never calls this.
