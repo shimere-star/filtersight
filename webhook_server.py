@@ -17,6 +17,8 @@ import sqlite3
 import datetime
 import stripe
 import requests
+import phonenumbers
+from phonenumbers import NumberParseException
 from urllib.parse import parse_qs
 from fastapi import FastAPI, Request, HTTPException, Response
 from pydantic import BaseModel
