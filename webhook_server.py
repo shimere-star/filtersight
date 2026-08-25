@@ -179,25 +179,25 @@ async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", ac
     )
 
     if accountability_phone:
-    invite_message = (
+        invite_message = (
         f"Filtersight: {email.split('@')[0]} added you as their accountability "
         "partner to receive text alerts if they try to bypass their content filter. "
         "Reply YES to confirm, STOP to decline."
-    )
+        )
 
-    twilio_client.messages.create(
+        twilio_client.messages.create(
         body=invite_message,
         from_=TWILIO_FROM_NUMBER,
         to=accountability_phone,
-    )
+        ) 
 
-    db.execute(
+        db.execute(
         """UPDATE customers
            SET partner_opt_in_status = 'pending',
                partner_opt_in_confirmed_at = NULL
            WHERE email = ?""",
         (email,),
-    )
+        )
 
     db.commit()
     db.close()
