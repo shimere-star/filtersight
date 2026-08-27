@@ -209,6 +209,12 @@ else:
                     "Accountability partner's phone number (e.g. +15551234567)"
                 )
 
+            st.caption(
+                "By providing a phone number, you agree to receive SMS messages "
+                "from Filtersight, including accountability check-ins. Msg & data "
+                "rates may apply. Reply STOP to opt out, HELP for help."
+            )
+
             if st.button("Save phone number(s)"):
                 if tier_info["needs_own_phone"] and not user_phone:
                     st.error("Enter your own phone number first.")
