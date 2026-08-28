@@ -317,10 +317,7 @@ else:
                     except requests.RequestException as e:
                         st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
             else:
-                st.write(
-                    "Canceling requires a small $5 processing fee — this plan doesn't "
-                    "have an accountability partner on file to notify instead."
-                )
+                
                 if st.button("Proceed to cancellation fee"):
                     try:
                         resp = requests.post(
@@ -333,12 +330,9 @@ else:
                         )
                         if resp.ok:
                             data = resp.json()
-                            checkout_url = data.get("checkout_url")
-                            if checkout_url:
-                                st.link_button("Pay $5 cancellation fee", checkout_url)
-                            else:
-                                st.info(str(data))
+                            if data.get("status") == "cancelled":
+                            st.success("Your subscription has been cancelled.")
                         else:
-                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
-                    except requests.RequestException as e:
-                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+                            st.info(str(data))
+                except requests.RequestException as e:
+                    st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
