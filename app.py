@@ -220,25 +220,27 @@ else:
     "Message frequency varies based on account activity. Msg & data rates may "
     "apply. Reply STOP to cancel, HELP for help."
             )
+        if st.button("Save phone number(s)"):
+            try:
+                resp = requests.post(
+                    f"{BACKEND_URL}/save-contact",
+                    params={
+                        "email": (customer_email or normalized_email).strip().lower(),
+                        "tier": tier_key,
+                        "user_phone": user_phone or "",
+                        "accountability_phone": partner_phone or "",
+                        "user_sms_opted_in": int(bool(sms_opt_in)),
+                    },
+                    timeout=10,
+                )
+
+                if resp.ok:
+                    st.success("Saved. You're all set.")
                 else:
-                    try:
-                        resp = requests.post(
-                            f"{BACKEND_URL}/save-contact",
-                            params={
-                                "email": (customer_email or normalized_email).strip().lower(),
-                                "tier": tier_key,
-                                "user_phone": user_phone or "",
-                                "accountability_phone": partner_phone or "",
-                                "user_sms_opted_in": int(bool(sms_opt_in)),
-                            },
-                            timeout=10,
-                        )
-                        if resp.ok:
-                            st.success("Saved. You're all set.")
-                        else:
-                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
-                    except requests.RequestException as e:
-                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+                    st.error(f"Backend error: {resp.status_code} — {resp.text}")
+
+            except requests.RequestException as e:
+                st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
 
         # -------------------------------------------------------------
         # STEP 4: AI companion chat — Tier 2 and Tier 3 only. Tier 1
