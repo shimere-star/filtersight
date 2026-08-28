@@ -229,7 +229,11 @@ HELP_KEYWORDS = {"HELP", "INFO"}
 
 OPT_IN_MESSAGE = "Filtersight: You are now opted-in. For help, reply HELP. To opt-out, reply STOP."
 OPT_OUT_MESSAGE = "You have successfully been unsubscribed. You will not receive any more messages from this number. Reply START to resubscribe."
-HELP_MESSAGE = "Reply STOP to unsubscribe. Msg&Data Rates May Apply."
+HELP_MESSAGE = (
+    "Filtersight support: Reply STOP to unsubscribe. "
+    "For help, contact support@filtersight.com. "
+    "Msg & data rates may apply."
+)
 
 
 def twiml_response(message: str) -> Response:
@@ -246,6 +250,12 @@ async def sms_webhook(request: Request):
 
     from_number = form.get("From", [""])[0].strip()
     message_body = form.get("Body", [""])[0].strip().upper()
+
+    if from_number:
+        try:
+            from_number = normalize_phone_e164(from_number)
+        except HTTPException:
+            return twiml_response("")
 
     db = get_db()
     try:
