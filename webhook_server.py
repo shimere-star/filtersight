@@ -61,7 +61,7 @@ def get_db():
             partner_opt_in_status TEXT,
             partner_opt_in_confirmed_at TEXT,
             accountability_phone TEXT,
-            user_sms_opted_in INTEGER DEFAULT 1,
+            user_sms_opted_in INTEGER DEFAULT 0,
             accountability_sms_opted_in INTEGER DEFAULT 1,
             last_dns_seen TEXT,
             removal_fee_paid INTEGER DEFAULT 0
@@ -74,7 +74,10 @@ def get_db():
     if "user_phone" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN user_phone TEXT")
     if "user_sms_opted_in" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_opted_in INTEGER DEFAULT 1")
+        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_opted_in INTEGER DEFAULT 0")
+        # Preserve legacy customers: under the old flow, having user_phone
+        # meant the customer had already supplied a texting number.
+        conn.execute("UPDATE customers SET user_sms_opted_in = 1 WHERE user_phone IS NOT NULL AND TRIM(user_phone) != ''")
     if "accountability_sms_opted_in" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN accountability_sms_opted_in INTEGER DEFAULT 1")
     if "partner_opt_in_status" not in existing_cols:
@@ -168,14 +171,14 @@ def normalize_phone_e164(phone: str) -> str:
 # tier2 sends user_phone only; tier3 sends both. tier1 never calls this.
 # ---------------------------------------------------------------------------
 @app.post("/save-contact")
-async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", accountability_phone: str = ""):
+async def save_contact(email: str, tier: str = "tier1", user_phone: str = "", accountability_phone: str = "", user_sms_opted_in: int = 0):
     email = email.strip().lower()
     db = get_db()
     db.execute(
     """UPDATE customers
-       SET tier = ?, user_phone = ?, accountability_phone = ?
+       SET tier = ?, user_phone = ?, accountability_phone = ?, user_sms_opted_in = ?
        WHERE email = ?""",
-    (tier, user_phone or None, accountability_phone or None, email),
+    (tier, user_phone or None, accountability_phone or None, int(bool(user_sms_opted_in)), email),
     )
 
     if accountability_phone:

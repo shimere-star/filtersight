@@ -209,11 +209,6 @@ else:
                     "Accountability partner's phone number (e.g. +15551234567)"
                 )
 
-            sms_phone = st.text_input(
-    "Phone number for SMS (optional)",
-    placeholder="+15551234567",
-)
-
             sms_opt_in = st.checkbox(
     "I agree to receive SMS messages from Filtersight, including "
     "accountability check-ins.",
@@ -234,6 +229,7 @@ else:
                                 "tier": tier_key,
                                 "user_phone": user_phone or "",
                                 "accountability_phone": partner_phone or "",
+                                "user_sms_opted_in": int(bool(sms_opt_in)),
                             },
                             timeout=10,
                         )
