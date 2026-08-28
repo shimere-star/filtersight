@@ -209,17 +209,17 @@ else:
                     "Accountability partner's phone number (e.g. +15551234567)"
                 )
 
-            st.caption(
-                "By providing a phone number, you agree to receive SMS messages "
-                "from Filtersight, including accountability check-ins. Msg & data "
-                "rates may apply. Reply STOP to opt out, HELP for help."
-            )
+            sms_opt_in = st.checkbox(
+    "I agree to receive SMS messages from Filtersight, including "
+    "accountability check-ins.",
+    value=False,
+)
 
-            if st.button("Save phone number(s)"):
-                if tier_info["needs_own_phone"] and not user_phone:
-                    st.error("Enter your own phone number first.")
-                elif tier_info["needs_partner_phone"] and not partner_phone:
-                    st.error("Enter your accountability partner's phone number first.")
+            st.caption(
+    "SMS messages include account, safety, and accountability notifications. "
+    "Message frequency varies based on account activity. Msg & data rates may "
+    "apply. Reply STOP to cancel, HELP for help."
+            )
                 else:
                     try:
                         resp = requests.post(
