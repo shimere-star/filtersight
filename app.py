@@ -285,10 +285,7 @@ else:
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
         # -------------------------------------------------------------
-        # STEP 5: Cancellation — available to every tier, but the path
-        # differs. Tier 3 can notify their accountability partner instead
-        # of paying. Tier 1 and Tier 2 always go through the small fee,
-        # since they have no partner on file.
+        # STEP 5: Cancellation — available to every tier.
         # -------------------------------------------------------------
         st.divider()
         with st.expander("Manage subscription"):
@@ -321,7 +318,7 @@ else:
                         st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
             else:
                 
-                if st.button("Proceed to cancellation fee"):
+                if st.button("Cancel my subscription"):
                     try:
                         resp = requests.post(
                             f"{BACKEND_URL}/request-cancellation",
