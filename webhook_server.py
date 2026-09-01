@@ -55,6 +55,7 @@ def get_db():
         CREATE TABLE IF NOT EXISTS customers (
             email TEXT PRIMARY KEY,
             stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
             active INTEGER DEFAULT 1,
             tier TEXT DEFAULT 'tier1',
             user_phone TEXT,
@@ -84,6 +85,8 @@ def get_db():
         conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_status TEXT")
     if "partner_opt_in_confirmed_at" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_confirmed_at TEXT")
+    if "stripe_subscription_id" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN stripe_subscription_id TEXT")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS nextdns_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -124,17 +127,25 @@ async def stripe_webhook(request: Request):
             else None
         )
         customer_id = session.customer
+        subscription_id = session.subscription
         metadata = session.metadata
         tier = metadata.to_dict().get("tier", "tier1") if metadata else "tier1"
         if email:
             db.execute(
-                """INSERT INTO customers (email, stripe_customer_id, active, tier)
-                   VALUES (?, ?, 1, ?)
+                """INSERT INTO customers (
+                       email,
+                       stripe_customer_id,
+                       stripe_subscription_id,
+                       active,
+                       tier
+                   )
+                   VALUES (?, ?, ?, 1, ?)
                    ON CONFLICT(email) DO UPDATE SET
                      stripe_customer_id = excluded.stripe_customer_id,
+                     stripe_subscription_id = excluded.stripe_subscription_id,
                      active = 1,
                      tier = excluded.tier""",
-                (email, customer_id, tier),
+                (email, customer_id, subscription_id, tier),
             )
             db.commit()
 
@@ -615,24 +626,23 @@ async def check_for_removed_profiles():
 
 
 # ---------------------------------------------------------------------------
-# 6. Cancellation friction — the piece that's actually enforceable, since
-# nothing stops someone from deleting the profile directly on their phone
-# regardless of what the server thinks. What you CAN gate is the paid
-# subscription itself: cancelling requires either the accountability
-# contact being notified, or a small fee, instead of an instant free cancel.
-# Only tier3 has a partner to notify — tier1/tier2 always go the fee route.
+# 6. Cancellation — scheduled for the end of the current billing period.
 # ---------------------------------------------------------------------------
-REMOVAL_FEE_CENTS = 500  # $5 — adjust as you like
 
 @app.post("/request-cancellation")
 async def request_cancellation(email: str, notify_contact_instead_of_paying: bool = True):
     email = email.strip().lower()
     db = get_db()
     row = db.execute(
-        "SELECT tier, accountability_phone, partner_opt_in_status FROM customers WHERE email = ?", (email,)
+        """SELECT tier, accountability_phone, partner_opt_in_status,
+                  stripe_subscription_id
+           FROM customers WHERE email = ?""",
+        (email,),
     ).fetchone()
 
-    tier, accountability_phone, partner_opt_in_status = row if row else (None, None, None)
+    tier, accountability_phone, partner_opt_in_status, subscription_id = (
+        row if row else (None, None, None, None)
+    )
     can_notify_partner = (
         tier == "tier3"
         and partner_opt_in_status == "confirmed"
@@ -646,34 +656,21 @@ async def request_cancellation(email: str, notify_contact_instead_of_paying: boo
             body=f"Filtersight: {email} has requested to cancel their filter. "
                  f"Reaching out to check in is up to you. Reply STOP to opt out.",
         )
-        db.close()
-        return {"status": "contact_notified", "next_step": "cancellation will proceed after notice"}
 
-    # Fee path: charge a one-time fee via Stripe before actually cancelling.
-    # This is also the only path for tier1/tier2, since they have no partner on file.
     if not stripe.api_key:
         db.close()
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
-    customer = db.execute(
-        "SELECT stripe_customer_id FROM customers WHERE email = ?", (email,)
-    ).fetchone()
     db.close()
-    if not customer or not customer[0]:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    if not subscription_id:
+        raise HTTPException(status_code=404, detail="Subscription not found")
 
-    checkout_session = stripe.checkout.Session.create(
-        mode="payment",
-        customer=customer[0],
-        line_items=[{
-            "price_data": {
-                "currency": "usd",
-                "product_data": {"name": "Filtersight — cancellation processing fee"},
-                "unit_amount": REMOVAL_FEE_CENTS,
-            },
-            "quantity": 1,
-        }],
-        success_url=f"{os.environ.get('APP_BASE_URL', '')}/?cancelled=true",
-        cancel_url=os.environ.get("APP_BASE_URL", ""),
-    )
-    return {"status": "fee_required", "checkout_url": checkout_session.url}
+    try:
+        stripe.Subscription.modify(
+            subscription_id,
+            cancel_at_period_end=True,
+        )
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=502, detail=f"Stripe cancellation failed: {e}")
+
+    return {"status": "cancellation_scheduled"}
