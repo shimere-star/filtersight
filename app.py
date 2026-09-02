@@ -292,47 +292,31 @@ else:
             st.write("Canceling isn't instant — it's a small, intentional step, on purpose.")
 
             if tier_info["has_partner"]:
-                st.write(
+                    st.write(
                     "Since you're on the Complete plan, canceling will notify your "
                     "accountability partner instead of charging a fee."
                 )
-                if st.button("Cancel my subscription"):
-                    try:
-                        resp = requests.post(
-                            f"{BACKEND_URL}/request-cancellation",
-                            params={
-                                "email": (customer_email or normalized_email).strip().lower(),
-                                "notify_contact_instead_of_paying": True,
-                            },
-                            timeout=10,
-                        )
-                        if resp.ok:
-                            data = resp.json()
-                            if data.get("status") == "contact_notified":
-                                st.success("Your accountability partner has been notified. Cancellation will proceed after that.")
-                            else:
-                                st.info(str(data))
-                        else:
-                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
-                    except requests.RequestException as e:
-                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
-            else:
-                
-                if st.button("Cancel my subscription"):
-                    try:
-                        resp = requests.post(
-                            f"{BACKEND_URL}/request-cancellation",
-                            params={
-                                "email": (customer_email or normalized_email).strip().lower(),
-                                "notify_contact_instead_of_paying": False,
-                            },
-                            timeout=10,
-                        )
-                        if resp.ok:
-                            data = resp.json()
-                            if data.get("status") == "cancelled":
+
+            if st.button("Cancel my subscription"):
+                try:
+                    resp = requests.post(
+                        f"{BACKEND_URL}/request-cancellation",
+                        params={
+                            "email": (customer_email or normalized_email).strip().lower(),
+                            "notify_contact_instead_of_paying": tier_info["has_partner"],
+                        },
+                        timeout=10,
+                    )
+                    if resp.ok:
+                        data = resp.json()
+                        status = data.get("status")
+                        if status == "contact_notified":
+                            st.success("Your accountability partner has been notified. Cancellation is in progress.")
+                        elif status == "cancelled":
                             st.success("Your subscription has been cancelled.")
                         else:
                             st.info(str(data))
+                    else:
+                        st.error(f"Backend error: {resp.status_code} — {resp.text}")
                 except requests.RequestException as e:
                     st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
