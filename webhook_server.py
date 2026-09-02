@@ -703,7 +703,7 @@ async def backfill_dry_run(request: Request):
         "stripe_modified": False,
     }
  @app.post("/admin/backfill-run")
-async def backfill_run(request: Request):
+ async def backfill_run(request: Request):
     admin_secret = os.environ.get("BACKFILL_ADMIN_SECRET")
     provided_secret = request.headers.get("X-Admin-Secret")
 
