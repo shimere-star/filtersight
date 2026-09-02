@@ -655,8 +655,8 @@ async def backfill_dry_run(request: Request):
     skipped = []
 
     for customer in customers:
-        email = customer["email"]
-        stripe_customer_id = customer["stripe_customer_id"]
+        email = customer[0]
+        stripe_customer_id = customer[1]
 
         try:
             subscriptions = stripe.Subscription.list(
