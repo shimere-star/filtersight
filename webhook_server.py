@@ -702,6 +702,96 @@ async def backfill_dry_run(request: Request):
         "database_modified": False,
         "stripe_modified": False,
     }
+ @app.post("/admin/backfill-run")
+async def backfill_run(request: Request):
+    admin_secret = os.environ.get("BACKFILL_ADMIN_SECRET")
+    provided_secret = request.headers.get("X-Admin-Secret")
+
+    if not admin_secret or provided_secret != admin_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if not stripe.api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    db = get_db()
+    customers = db.execute(
+        """
+        SELECT email, stripe_customer_id
+        FROM customers
+        WHERE stripe_customer_id IS NOT NULL
+          AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')
+        ORDER BY email
+        """
+    ).fetchall()
+
+    updated = []
+    skipped = []
+
+    for customer in customers:
+        email = customer[0]
+        stripe_customer_id = customer[1]
+
+        try:
+            subscriptions = stripe.Subscription.list(
+                customer=stripe_customer_id,
+                status="active",
+                limit=100,
+            )
+
+            active_subscriptions = [
+                sub
+                for sub in subscriptions.auto_paging_iter()
+                if sub.status == "active"
+            ]
+
+            if len(active_subscriptions) == 1:
+                subscription_id = active_subscriptions[0].id
+
+                db.execute(
+                    """
+                    UPDATE customers
+                    SET stripe_subscription_id = ?
+                    WHERE email = ?
+                    """,
+                    (subscription_id, email),
+                )
+
+                updated.append({
+                    "email": email,
+                    "stripe_customer_id": stripe_customer_id,
+                    "stripe_subscription_id": subscription_id,
+                })
+
+            elif len(active_subscriptions) == 0:
+                skipped.append({
+                    "email": email,
+                    "reason": "no active subscription",
+                })
+            else:
+                skipped.append({
+                    "email": email,
+                    "reason": f"{len(active_subscriptions)} active subscriptions",
+                })
+
+        except stripe.StripeError as e:
+            skipped.append({
+                "email": email,
+                "reason": f"Stripe error: {e}",
+            })
+
+    db.commit()
+    db.close()
+
+    return {
+        "updated": updated,
+        "updated_count": len(updated),
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+        "database_modified": True,
+        "stripe_modified": False,
+    }
+
+
 @app.post("/request-cancellation")
 async def request_cancellation(email: str, notify_contact_instead_of_paying: bool = True):
     email = email.strip().lower()
