@@ -1,0 +1,59 @@
+name: Remove completed backfill endpoints
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  remove-backfill-endpoints:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove temporary endpoints
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("webhook_server.py")
+          text = path.read_text()
+
+          pattern = re.compile(
+              r'(?ms)^@app\.post\("/admin/backfill-dry-run"\)\n'
+              r'.*?^@app\.post\("/admin/backfill-run"\)\n'
+              r'.*?^\n\n(?=@app\.post\("/request-cancellation"\))'
+          )
+
+          new_text, count = pattern.subn('', text)
+
+          if count != 1:
+              if '/admin/backfill-dry-run' not in text and '/admin/backfill-run' not in text:
+                  print('Backfill endpoints already removed; nothing to do.')
+                  raise SystemExit(0)
+              raise SystemExit(f'Expected exactly one combined backfill block, found {count}')
+
+          if '@app.post("/request-cancellation")' not in new_text:
+              raise SystemExit('Safety check failed: request-cancellation endpoint missing')
+
+          path.write_text(new_text)
+          print('Removed both temporary backfill endpoints.')
+          PY
+
+      - name: Commit changes and remove this workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webhook_server.py .github/workflows/remove-backfill-endpoints.yml
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Remove temporary backfill admin endpoints"
+          git push
