@@ -318,7 +318,7 @@ else:
                             st.success("Your cancellation has been scheduled. Your accountability partner will be notified.")
                         else:
                             st.info(str(data))
-                     else:
+                    else:
                             st.error(f"Backend error: {resp.status_code} — {resp.text}")
                   except requests.RequestException as e:
                     st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
