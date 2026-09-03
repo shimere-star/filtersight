@@ -314,9 +314,11 @@ else:
                             st.success("Your accountability partner has been notified. Cancellation is in progress.")
                         elif status == "cancelled":
                             st.success("Your subscription has been cancelled.")
+                        elif status == "cancellation_scheduled":
+                            st.success("Your cancellation has been scheduled. Your accountability partner will be notified.")
                         else:
                             st.info(str(data))
-                    else:
-                        st.error(f"Backend error: {resp.status_code} — {resp.text}")
+                        else:
+                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
                 except requests.RequestException as e:
                     st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
