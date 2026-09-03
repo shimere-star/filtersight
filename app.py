@@ -72,11 +72,10 @@ if query_params.get("session_id") is None:
     st.caption(TIERS[tier_key]["description"])
     sms_consent = st.checkbox("I agree to receive account and safety-related SMS notifications from Filtersight. Message frequency varies based on account activity. Msg & data rates may apply. Reply STOP to opt out, HELP for help.")
     if st.button("Continue to payment"):
+        selected_price_id = TIERS[tier_key]["price_id"]
         if not sms_consent:
             st.error("Please check the SMS consent box to continue.")
-        
-        selected_price_id = TIERS[tier_key]["price_id"]
-        if not normalized_email:
+        elif not normalized_email:
             st.error("Enter an email first.")
         elif not stripe.api_key or not selected_price_id:
             st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price IDs.")
@@ -91,6 +90,7 @@ if query_params.get("session_id") is None:
                 subscription_data={"metadata": {"tier": tier_key}},
             )
             st.link_button("Go to secure checkout", session.url)
+
 
 # ---------------------------------------------------------------------------
 # STEP 2: Customer lands back here after paying. We verify the session with
