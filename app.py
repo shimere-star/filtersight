@@ -70,10 +70,11 @@ if query_params.get("session_id") is None:
         format_func=lambda k: TIERS[k]["label"],
     )
     st.caption(TIERS[tier_key]["description"])
-
-    st.caption("By subscribing, you consent to receive account and safety-related SMS notifications from Filtersight. Message frequency varies based on account activity. Message and data rates may apply. Reply STOP to opt out, HELP for help.")
-
+    sms_consent = st.checkbox("I agree to receive account and safety-related SMS notifications from Filtersight. Message frequency varies based on account activity. Msg & data rates may apply. Reply STOP to opt out, HELP for help.")
     if st.button("Continue to payment"):
+        if not sms_consent:
+            st.error("Please check the SMS consent box to continue.")
+        
         selected_price_id = TIERS[tier_key]["price_id"]
         if not normalized_email:
             st.error("Enter an email first.")
