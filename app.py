@@ -14,10 +14,8 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")  # starts with sk_live_ or 
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8501")  # your real domain once deployed
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")    # where webhook_server.py runs
 
-# Three tier price IDs — set these from your Stripe dashboard / sandbox.
-STRIPE_PRICE_TIER1 = os.environ.get("STRIPE_PRICE_TIER1")  # Filter — $5/mo
-STRIPE_PRICE_TIER2 = os.environ.get("STRIPE_PRICE_TIER2")  # Filter + Companion — $10/mo
-STRIPE_PRICE_TIER3 = os.environ.get("STRIPE_PRICE_TIER3")  # Complete — $13/mo
+# Tier 1 price ID — Filter — $5/mo.
+STRIPE_PRICE_TIER1 = os.environ.get("STRIPE_PRICE_TIER1")
 
 TIERS = {
     "tier1": {
@@ -28,24 +26,6 @@ TIERS = {
         "needs_partner_phone": False,
         "has_chat": False,
         "has_partner": False,
-    },
-    "tier2": {
-        "label": "Filter + Companion — $10/mo",
-        "price_id": STRIPE_PRICE_TIER2,
-        "description": "Filter + self-encouragement texts to your own phone + AI chat companion.",
-        "needs_own_phone": True,
-        "needs_partner_phone": False,
-        "has_chat": True,
-        "has_partner": False,
-    },
-    "tier3": {
-        "label": "Complete — $13/mo",
-        "price_id": STRIPE_PRICE_TIER3,
-        "description": "Everything in Filter + Companion, plus an accountability partner is notified too.",
-        "needs_own_phone": True,
-        "needs_partner_phone": True,
-        "has_chat": True,
-        "has_partner": True,
     },
 }
 
@@ -58,27 +38,23 @@ email = st.text_input("Email address")
 normalized_email = email.strip().lower()
 
 # ---------------------------------------------------------------------------
-# STEP 1: Pick a tier, then send the customer to real Stripe Checkout
+# STEP 1: Send the customer to real Stripe Checkout for the Tier 1 plan.
 # (hosted by Stripe, not built by us — this is the correct/secure way to
 # collect card details).
 # ---------------------------------------------------------------------------
 if query_params.get("session_id") is None:
-    st.subheader("Choose your plan")
-    tier_key = st.radio(
-        "Plan",
-        options=list(TIERS.keys()),
-        format_func=lambda k: TIERS[k]["label"],
-    )
+    st.subheader("Your plan")
+    tier_key = "tier1"
+    st.caption(TIERS[tier_key]["label"])
     st.caption(TIERS[tier_key]["description"])
-    sms_consent = st.checkbox("I agree to receive account and safety-related SMS notifications from Filtersight. Message frequency varies based on account activity. Msg & data rates may apply. Reply STOP to opt out, HELP for help.")
+
     if st.button("Continue to payment"):
         selected_price_id = TIERS[tier_key]["price_id"]
-        if not sms_consent:
-            st.error("Please check the SMS consent box to continue.")
-        elif not normalized_email:
+
+        if not normalized_email:
             st.error("Enter an email first.")
         elif not stripe.api_key or not selected_price_id:
-            st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price IDs.")
+            st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price ID.")
         else:
             session = stripe.checkout.Session.create(
                 mode="subscription",
@@ -190,62 +166,8 @@ else:
         tier_info = TIERS.get(tier_key, TIERS["tier1"])
 
         # -------------------------------------------------------------
-        # STEP 3: Collect phone number(s), scoped to what the paid tier
-        # actually needs. Tier 1 gets nothing here — it's filter-only.
-        # -------------------------------------------------------------
-        if tier_info["needs_own_phone"] or tier_info["needs_partner_phone"]:
-            st.divider()
-            st.subheader("Set up your texts")
-
-            user_phone = None
-            partner_phone = None
-
-            if tier_info["needs_own_phone"]:
-                user_phone = st.text_input(
-                    "Your phone number (for encouragement texts, e.g. +15551234567)"
-                )
-
-            if tier_info["needs_partner_phone"]:
-                partner_phone = st.text_input(
-                    "Accountability partner's phone number (e.g. +15551234567)"
-                )
-
-            sms_opt_in = st.checkbox(
-    "I agree to receive SMS messages from Filtersight, including "
-    "accountability check-ins.",
-    value=False,
-)
-
-            st.caption(
-    "SMS messages include account, safety, and accountability notifications. "
-    "Message frequency varies based on account activity. Msg & data rates may "
-    "apply. Reply STOP to cancel, HELP for help."
-            )
-        if st.button("Save phone number(s)"):
-            try:
-                resp = requests.post(
-                    f"{BACKEND_URL}/save-contact",
-                    params={
-                        "email": (customer_email or normalized_email).strip().lower(),
-                        "tier": tier_key,
-                        "user_phone": user_phone or "",
-                        "accountability_phone": partner_phone or "",
-                        "user_sms_opted_in": int(bool(sms_opt_in)),
-                    },
-                    timeout=10,
-                )
-
-                if resp.ok:
-                    st.success("Saved. You're all set.")
-                else:
-                    st.error(f"Backend error: {resp.status_code} — {resp.text}")
-
-            except requests.RequestException as e:
-                st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
-
-        # -------------------------------------------------------------
-        # STEP 4: AI companion chat — Tier 2 and Tier 3 only. Tier 1
-        # never sees this section at all.
+        # STEP 3: AI companion chat — Tier 2 and Tier 3 only.
+        # Tier 1 never sees this section at all.
         # -------------------------------------------------------------
         if tier_info["has_chat"]:
             st.divider()
@@ -286,7 +208,7 @@ else:
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
         # -------------------------------------------------------------
-        # STEP 5: Cancellation — available to every tier.
+        # STEP 4: Cancellation — available to every tier.
         # -------------------------------------------------------------
         st.divider()
         with st.expander("Manage subscription"):
