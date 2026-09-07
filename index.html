@@ -73,7 +73,7 @@
   .step p{color:#4A5561; font-size:0.95rem;}
 
   .pricing{
-    display:grid; grid-template-columns:1fr 1fr; gap:24px; padding-top:2vh;
+    display:flex; justify-content:center; gap:24px; padding-top:2vh;
   }
   .plan{
     border:1px solid var(--line); padding:32px; background:#fff;
@@ -95,7 +95,7 @@
   footer a{color:#8A9298; margin-left:20px; text-decoration:none;}
 
   @media (max-width:640px){
-    .how, .pricing{grid-template-columns:1fr;}
+    .how{grid-template-columns:1fr;}
     footer{flex-direction:column; gap:14px; text-align:center;}
     footer a{margin:0 10px;}
   }
@@ -157,29 +157,8 @@
       </ul>
       <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Filter</a>
     </div>
-    <div class="plan featured">
-      <h3>Filter + Companion</h3>
-      <div class="price">$10<span>/mo</span></div>
-      <ul>
-        <li>Everything in Filter</li>
-        <li>Self-encouragement texts on bypass attempts</li>
-        <li>AI companion chat, anytime</li>
-      </ul>
-      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Filter + Companion</a>
-    </div>
-    <div class="plan">
-      <h3>Complete</h3>
-      <div class="price">$13<span>/mo</span></div>
-      <ul>
-        <li>Everything in Filter + Companion</li>
-        <li>Choose your own accountability partner</li>
-        <li>Partner gets notified on bypass attempts too</li>
-      </ul>
-      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Complete</a>
-    </div>
   </div>
 </section>
-
 
 <footer>
   <div>© 2026 Filtersight</div>
