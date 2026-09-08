@@ -159,19 +159,15 @@ else:
             mime="application/x-apple-aspen-config",
         )
         st.markdown("### How to install")
-        st.markdown(
-            """
-            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 18px; margin-top: 4px; margin-bottom: 12px;">
-                <ol style="margin: 0; padding-left: 22px;">
-                    <li>Tap the downloaded file (or open it from Safari's download banner, or the Files app)</li>
-                    <li>Go to Settings → General → VPN &amp; Device Management</li>
-                    <li>Tap "Filtersight," then tap Install (enter your passcode when asked)</li>
-                    <li>Done — filtering starts immediately</li>
-                </ol>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(
+                """
+                1. Tap the downloaded file (or open it from Safari's download banner, or the Files app)
+                2. Go to Settings → General → VPN & Device Management
+                3. Tap "Filtersight," then tap Install (enter your passcode when asked)
+                4. Done — filtering starts immediately
+                """
+            )
 
         tier_info = TIERS.get(tier_key, TIERS["tier1"])
 
