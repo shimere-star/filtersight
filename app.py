@@ -158,9 +158,19 @@ else:
             file_name="filtersight.mobileconfig",
             mime="application/x-apple-aspen-config",
         )
-        st.caption(
-            "After download, open it from Files or the download banner in Safari, "
-            "then go to Settings → General → VPN & Device Management to install."
+        st.markdown("### How to install")
+        st.markdown(
+            """
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 18px; margin-top: 4px; margin-bottom: 12px;">
+                <ol style="margin: 0; padding-left: 22px;">
+                    <li>Tap the downloaded file (or open it from Safari's download banner, or the Files app)</li>
+                    <li>Go to Settings → General → VPN &amp; Device Management</li>
+                    <li>Tap "Filtersight," then tap Install (enter your passcode when asked)</li>
+                    <li>Done — filtering starts immediately</li>
+                </ol>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
         tier_info = TIERS.get(tier_key, TIERS["tier1"])
