@@ -1,4 +1,3 @@
-# trigger redeploy
 import streamlit as st
 import stripe
 import uuid
@@ -14,8 +13,11 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")  # starts with sk_live_ or 
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8501")  # your real domain once deployed
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")    # where webhook_server.py runs
 
-# Tier 1 price ID — Filter — $5/mo.
-STRIPE_PRICE_TIER1 = os.environ.get("STRIPE_PRICE_TIER1")
+# Three tier price IDs — set these from your Stripe dashboard / sandbox.
+STRIPE_PRICE_TIER1 = os.environ.get("STRIPE_PRICE_TIER1")  # Filter — $5/mo
+STRIPE_PRICE_TIER2 = os.environ.get("STRIPE_PRICE_TIER2")  # Filter + Companion — $10/mo
+STRIPE_PRICE_TIER3 = os.environ.get("STRIPE_PRICE_TIER3")  # Complete — $13/mo
+ENABLE_TIER2_TIER3 = os.environ.get("ENABLE_TIER2_TIER3", "false").lower() in ("1", "true", "yes")
 
 TIERS = {
     "tier1": {
@@ -27,7 +29,26 @@ TIERS = {
         "has_chat": False,
         "has_partner": False,
     },
+    "tier2": {
+        "label": "Filter + Companion — $10/mo",
+        "price_id": STRIPE_PRICE_TIER2,
+        "description": "Filter + self-encouragement texts to your own phone + AI chat companion.",
+        "needs_own_phone": True,
+        "needs_partner_phone": False,
+        "has_chat": True,
+        "has_partner": False,
+    },
+    "tier3": {
+        "label": "Complete — $13/mo",
+        "price_id": STRIPE_PRICE_TIER3,
+        "description": "Everything in Filter + Companion, plus an accountability partner is notified too.",
+        "needs_own_phone": True,
+        "needs_partner_phone": True,
+        "has_chat": True,
+        "has_partner": True,
+    },
 }
+AVAILABLE_TIERS = TIERS if ENABLE_TIER2_TIER3 else {"tier1": TIERS["tier1"]}
 
 st.set_page_config(page_title="Filtersight", page_icon="🔒")
 st.title("Filtersight")
@@ -38,23 +59,24 @@ email = st.text_input("Email address")
 normalized_email = email.strip().lower()
 
 # ---------------------------------------------------------------------------
-# STEP 1: Send the customer to real Stripe Checkout for the Tier 1 plan.
+# STEP 1: Pick a tier, then send the customer to real Stripe Checkout
 # (hosted by Stripe, not built by us — this is the correct/secure way to
 # collect card details).
 # ---------------------------------------------------------------------------
 if query_params.get("session_id") is None:
-    st.subheader("Your plan")
-    tier_key = "tier1"
-    st.caption(TIERS[tier_key]["label"])
+    st.subheader("Choose your plan")
+    tier_key = st.radio(
+        "Plan",
+        options=list(AVAILABLE_TIERS.keys()),
+        format_func=lambda k: TIERS[k]["label"],
+    )
     st.caption(TIERS[tier_key]["description"])
-
     if st.button("Continue to payment"):
         selected_price_id = TIERS[tier_key]["price_id"]
-
         if not normalized_email:
             st.error("Enter an email first.")
         elif not stripe.api_key or not selected_price_id:
-            st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price ID.")
+            st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and the tier price IDs.")
         else:
             session = stripe.checkout.Session.create(
                 mode="subscription",
@@ -97,9 +119,24 @@ else:
         if verify_error:
             st.caption(f"Debug info: {verify_error}")
     else:
-        st.success(f"Payment verified for {customer_email}. Your profile is ready.")
+        if tier_key in ("tier2", "tier3") and not ENABLE_TIER2_TIER3:
+            st.error("This plan isn't available yet. Your payment is being reviewed; contact support if you were charged.")
+            st.stop()
+        st.success(f"Payment verified for {customer_email}. Preparing your profile…")
 
-        def generate_mobileconfig(customer_email: str) -> str:
+        try:
+            profile_response = requests.post(
+                f"{BACKEND_URL}/provision-nextdns-profile",
+                json={"checkout_session_id": session_id},
+                timeout=30,
+            )
+            profile_response.raise_for_status()
+            nextdns_profile_id = profile_response.json()["profile_id"]
+        except (requests.RequestException, KeyError, ValueError) as e:
+            st.error("We verified your payment but couldn't prepare your DNS profile. Please contact support; you won't be charged again by retrying this page.")
+            st.stop()
+
+        def generate_mobileconfig(customer_email: str, nextdns_profile_id: str) -> str:
             payload_uuid = str(uuid.uuid4()).upper()
             top_uuid = str(uuid.uuid4()).upper()
             safe_email = customer_email.replace("@", "-at-").replace(".", "-")
@@ -127,7 +164,7 @@ else:
                 <key>DNSProtocol</key>
                 <string>HTTPS</string>
                 <key>ServerURL</key>
-                <string>https://doh.cleanbrowsing.org/doh/adult-filter/</string>
+                <string>https://dns.nextdns.io/{nextdns_profile_id}</string>
             </dict>
         </dict>
     </array>
@@ -151,29 +188,78 @@ else:
 </plist>
 """
 
-        profile_xml = generate_mobileconfig(customer_email or normalized_email)
+        profile_xml = generate_mobileconfig(customer_email or normalized_email, nextdns_profile_id)
         st.download_button(
             label="Download Profile",
             data=profile_xml,
             file_name="filtersight.mobileconfig",
             mime="application/x-apple-aspen-config",
         )
-        st.markdown("### How to install")
-        with st.container(border=True):
-            st.markdown(
-                """
-                1. Tap the downloaded file (or open it from Safari's download banner, or the Files app)
-                2. Go to Settings → General → VPN & Device Management
-                3. Tap "Filtersight," then tap Install (enter your passcode when asked)
-                4. Done — filtering starts immediately
-                """
-            )
+        st.caption("After download, open it from Files or Safari, then install it from Settings → General → VPN & Device Management.")
 
         tier_info = TIERS.get(tier_key, TIERS["tier1"])
+        if tier_info["has_chat"]:
+            st.info(
+                "For Tier 2 and Tier 3, NextDNS query logs are used to detect blocked adult-content attempts. "
+                "Those logs can include blocked domain names and timestamps; NextDNS applies the profile's log-retention setting."
+            )
 
         # -------------------------------------------------------------
-        # STEP 3: AI companion chat — Tier 2 and Tier 3 only.
-        # Tier 1 never sees this section at all.
+        # STEP 3: Collect phone number(s), scoped to what the paid tier
+        # actually needs. Tier 1 gets nothing here — it's filter-only.
+        # -------------------------------------------------------------
+        if tier_info["needs_own_phone"] or tier_info["needs_partner_phone"]:
+            st.divider()
+            st.subheader("Set up your texts")
+
+            user_phone = None
+            partner_phone = None
+
+            if tier_info["needs_own_phone"]:
+                user_phone = st.text_input(
+                    "Your phone number (for encouragement texts, e.g. +15551234567)"
+                )
+
+            if tier_info["needs_partner_phone"]:
+                partner_phone = st.text_input(
+                    "Accountability partner's phone number (e.g. +15551234567)"
+                )
+
+            sms_opt_in = st.checkbox(
+                "I agree to receive recurring SMS messages from Filtersight for encouragement and account support. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help. Consent isn't required to buy the plan.",
+                value=False,
+            )
+            st.caption("Read our [Privacy Policy](https://filtersight.com/privacy.html) and [Terms](https://filtersight.com/terms.html).")
+
+            st.caption("Your accountability partner must reply YES to their own invitation before receiving any alerts. Their consent is collected separately.")
+
+            if st.button("Save phone number(s)"):
+                if sms_opt_in and not user_phone:
+                    st.error("Enter your phone number to receive SMS messages.")
+                elif tier_info["needs_partner_phone"] and not partner_phone:
+                    st.error("Enter your accountability partner's phone number to send their opt-in invitation.")
+                else:
+                    try:
+                        resp = requests.post(
+                            f"{BACKEND_URL}/save-contact",
+                            json={
+                                "checkout_session_id": session_id,
+                                "user_phone": user_phone or "",
+                                "accountability_phone": partner_phone or "",
+                                "user_sms_opted_in": bool(sms_opt_in),
+                            },
+                            timeout=10,
+                        )
+                        if resp.ok:
+                            st.success("Saved. If you added an accountability partner, they must reply YES before receiving alerts.")
+                        else:
+                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
+                    except requests.RequestException as e:
+                        st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+
+        # -------------------------------------------------------------
+        # STEP 4: AI companion chat — Tier 2 and Tier 3 only. Tier 1
+        # never sees this section at all.
         # -------------------------------------------------------------
         if tier_info["has_chat"]:
             st.divider()
@@ -200,7 +286,8 @@ else:
                                 f"{BACKEND_URL}/chat",
                                 json={
                                     "message": user_message,
-                                    "history": st.session_state.chat_history,
+                                    "history": st.session_state.chat_history[:-1],
+                                    "checkout_session_id": session_id,
                                 },
                                 timeout=30,
                             )
@@ -214,40 +301,31 @@ else:
                 st.session_state.chat_history.append({"role": "assistant", "content": reply})
 
         # -------------------------------------------------------------
-        # STEP 4: Cancellation — available to every tier.
+        # STEP 5: Cancellation — available to every tier.
         # -------------------------------------------------------------
         st.divider()
         with st.expander("Manage subscription"):
-            st.write("Canceling isn't instant — it's a small, intentional step, on purpose.")
-
-            if tier_info["has_partner"]:
-                    st.write(
-                    "Since you're on the Complete plan, canceling will notify your "
-                    "accountability partner instead of charging a fee."
-                )
+            st.write("Your subscription will remain active until the end of the current billing period. There is no cancellation fee.")
 
             if st.button("Cancel my subscription"):
                 try:
                     resp = requests.post(
                         f"{BACKEND_URL}/request-cancellation",
                         params={
-                            "email": (customer_email or normalized_email).strip().lower(),
-                            "notify_contact_instead_of_paying": tier_info["has_partner"],
+                            "checkout_session_id": session_id,
                         },
                         timeout=10,
                     )
                     if resp.ok:
                         data = resp.json()
                         status = data.get("status")
-                        if status == "contact_notified":
-                            st.success("Your accountability partner has been notified. Cancellation is in progress.")
-                        elif status == "cancelled":
+                        if status == "cancelled":
                             st.success("Your subscription has been cancelled.")
                         elif status == "cancellation_scheduled":
-                            st.success("Your cancellation has been scheduled. Your accountability partner will be notified.")
+                            st.success("Your cancellation is scheduled for the end of your current billing period. No fee was charged.")
                         else:
                             st.info(str(data))
                     else:
-                            st.error(f"Backend error: {resp.status_code} — {resp.text}")
+                        st.error(f"Backend error: {resp.status_code} — {resp.text}")
                 except requests.RequestException as e:
                     st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
