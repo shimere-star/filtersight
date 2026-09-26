@@ -40,6 +40,7 @@ TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")  # your Twilio number
 SMS_CONSENT_VERSION = "2026-09-25-v1"
+ENABLE_TIER2_TIER3 = os.environ.get("ENABLE_TIER2_TIER3", "false").lower() in ("1", "true", "yes")
 
 twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else None
 
@@ -149,6 +150,8 @@ def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
 
     metadata = session.metadata.to_dict() if session.metadata else {}
     tier = metadata.get("tier", "tier1")
+    if tier in ("tier2", "tier3") and not ENABLE_TIER2_TIER3:
+        raise HTTPException(status_code=503, detail="Tier 2 and Tier 3 are not enabled yet")
     if allowed_tiers and tier not in allowed_tiers:
         raise HTTPException(status_code=403, detail="This plan does not include this feature")
     details = session.customer_details
@@ -208,7 +211,7 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
 
 def send_attempt_notifications(row, domain: str = ""):
     tier, user_phone, accountability_phone, user_opted_in, partner_opted_in, partner_status = row
-    if tier == "tier1":
+    if tier == "tier1" or not ENABLE_TIER2_TIER3:
         return []
     send_to_user = bool(user_phone and user_opted_in)
     send_to_partner = bool(
@@ -794,6 +797,8 @@ async def record_dns_activity(request: Request, email: str):
 async def check_for_removed_profiles(request: Request):
     """Run this on a schedule (e.g. every hour) via cron or a scheduled task."""
     require_admin_secret(request)
+    if not ENABLE_TIER2_TIER3:
+        raise HTTPException(status_code=503, detail="Tier 2 and Tier 3 are not enabled yet")
     if not twilio_client:
         raise HTTPException(status_code=500, detail="Twilio not configured")
 
