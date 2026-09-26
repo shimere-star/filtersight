@@ -18,11 +18,16 @@ import datetime
 import copy
 import hmac
 import uuid
+import hashlib
+import secrets
+import smtplib
+import ssl
 import stripe
 import requests
 import phonenumbers
 from phonenumbers import NumberParseException
-from urllib.parse import parse_qs
+from email.message import EmailMessage
+from urllib.parse import parse_qs, urlencode
 from fastapi import FastAPI, Request, HTTPException, Response
 from pydantic import BaseModel, Field
 from twilio.rest import Client as TwilioClient
@@ -48,6 +53,13 @@ twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else N
 NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
 NEXTDNS_PROFILE_ID = os.environ.get("NEXTDNS_PROFILE_ID")
 BACKFILL_ADMIN_SECRET = os.environ.get("BACKFILL_ADMIN_SECRET")
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
+SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in ("1", "true", "yes")
+SMTP_USE_STARTTLS = os.environ.get("SMTP_USE_STARTTLS", "true").lower() in ("1", "true", "yes")
 
 DB_PATH = "/data/customers.db"
 
@@ -75,6 +87,23 @@ def get_db():
             last_dns_seen TEXT,
             last_removed_alert_at TEXT,
             removal_fee_paid INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS member_magic_links (
+            email TEXT PRIMARY KEY,
+            token_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            sent_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS member_sessions (
+            token_hash TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            stripe_subscription_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
         )
     """)
     # Lightweight migration for DBs created before this update.
@@ -159,6 +188,251 @@ def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
     if not email:
         raise HTTPException(status_code=400, detail="Checkout has no customer email")
     return {"email": email, "tier": tier, "customer_id": session.customer, "subscription_id": subscription_id}
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def send_member_signin_email(email: str, token: str) -> None:
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
+    base_url = os.environ.get("APP_BASE_URL", "https://signup-app-v3-production.up.railway.app")
+    link = f"{base_url}/?{urlencode({'view': 'member', 'magic_token': token})}"
+    message = EmailMessage()
+    message["Subject"] = "Your Filtersight sign-in link"
+    message["From"] = SMTP_FROM_EMAIL
+    message["To"] = email
+    message.set_content(
+        "Use this one-time link to open your Filtersight member page. "
+        "It expires in 15 minutes and can only be used once.\n\n"
+        f"{link}\n\nIf you did not request this email, you can ignore it."
+    )
+    try:
+        smtp_class = smtplib.SMTP_SSL if SMTP_USE_SSL else smtplib.SMTP
+        with smtp_class(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            if SMTP_USE_STARTTLS and not SMTP_USE_SSL:
+                server.starttls(context=ssl.create_default_context())
+            if SMTP_USERNAME:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+            server.send_message(message)
+    except (OSError, smtplib.SMTPException) as e:
+        raise HTTPException(status_code=502, detail="Could not send the sign-in email") from e
+
+
+class MemberEmailRequest(BaseModel):
+    email: str
+
+
+class MemberMagicLinkRequest(BaseModel):
+    token: str
+
+
+@app.post("/member/request-link")
+async def member_request_link(body: MemberEmailRequest):
+    email = body.email.strip().lower()
+    if len(email) > 254 or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
+
+    generic = "If that email has an active Filtersight subscription, a sign-in link will be sent."
+    db = get_db()
+    row = db.execute(
+        """SELECT stripe_subscription_id FROM customers
+           WHERE email = ? AND active = 1 AND stripe_subscription_id IS NOT NULL""",
+        (email,),
+    ).fetchone()
+    if not row:
+        db.close()
+        return {"status": generic}
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    previous = db.execute(
+        "SELECT sent_at FROM member_magic_links WHERE email = ?", (email,)
+    ).fetchone()
+    if previous:
+        try:
+            last_sent = parse_utc_timestamp(previous[0])
+            if last_sent and (now - last_sent).total_seconds() < 120:
+                db.close()
+                return {"status": generic}
+        except ValueError:
+            pass
+
+    try:
+        subscription = stripe.Subscription.retrieve(row[0])
+    except stripe.error.StripeError:
+        db.close()
+        return {"status": generic}
+    if subscription.status not in ("active", "trialing"):
+        db.close()
+        return {"status": generic}
+
+    token = secrets.token_urlsafe(32)
+    sent_at = now.isoformat()
+    expires_at = (now + datetime.timedelta(minutes=15)).isoformat()
+    db.execute(
+        """INSERT INTO member_magic_links (email, token_hash, expires_at, sent_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(email) DO UPDATE SET token_hash = excluded.token_hash,
+               expires_at = excluded.expires_at, sent_at = excluded.sent_at""",
+        (email, hash_token(token), expires_at, sent_at),
+    )
+    db.commit()
+    db.close()
+    try:
+        send_member_signin_email(email, token)
+    except HTTPException:
+        db = get_db()
+        db.execute("DELETE FROM member_magic_links WHERE email = ?", (email,))
+        db.commit()
+        db.close()
+        return {"status": generic}
+    return {"status": generic}
+
+
+@app.post("/member/verify-link")
+async def member_verify_link(body: MemberMagicLinkRequest):
+    if len(body.token) > 200:
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in link")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db = get_db()
+    row = db.execute(
+        "SELECT email, expires_at FROM member_magic_links WHERE token_hash = ?",
+        (hash_token(body.token),),
+    ).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in link")
+    email, expires_at = row
+    try:
+        is_expired = parse_utc_timestamp(expires_at) <= now
+    except (TypeError, ValueError):
+        is_expired = True
+    if is_expired:
+        db.execute("UPDATE member_magic_links SET token_hash = '' WHERE email = ?", (email,))
+        db.commit()
+        db.close()
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in link")
+
+    account = db.execute(
+        """SELECT stripe_subscription_id, tier FROM customers
+           WHERE email = ? AND active = 1 AND stripe_subscription_id IS NOT NULL""",
+        (email,),
+    ).fetchone()
+    if not account:
+        db.close()
+        raise HTTPException(status_code=401, detail="Subscription is not active")
+    subscription_id, tier = account
+    try:
+        subscription = stripe.Subscription.retrieve(subscription_id)
+    except stripe.error.StripeError:
+        db.close()
+        raise HTTPException(status_code=503, detail="Could not verify your subscription right now")
+    if subscription.status not in ("active", "trialing"):
+        db.close()
+        raise HTTPException(status_code=401, detail="Subscription is not active")
+
+    db.execute(
+        "UPDATE member_magic_links SET token_hash = '' WHERE email = ?",
+        (email,),
+    )
+    db.execute("DELETE FROM member_sessions WHERE expires_at <= ?", (now.isoformat(),))
+    access_token = secrets.token_urlsafe(32)
+    access_expires = now + datetime.timedelta(days=30)
+    db.execute(
+        """INSERT INTO member_sessions
+           (token_hash, email, stripe_subscription_id, expires_at, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (hash_token(access_token), email, subscription_id, access_expires.isoformat(), now.isoformat()),
+    )
+    db.commit()
+    db.close()
+    return {"access_token": access_token, "expires_at": access_expires.isoformat(), "tier": tier}
+
+
+def require_member_session(request: Request):
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token or len(token) > 200:
+        raise HTTPException(status_code=401, detail="Sign in to continue")
+    db = get_db()
+    row = db.execute(
+        """SELECT s.email, s.stripe_subscription_id, s.expires_at, c.tier
+           FROM member_sessions s JOIN customers c
+             ON c.stripe_subscription_id = s.stripe_subscription_id
+           WHERE s.token_hash = ? AND c.active = 1""",
+        (hash_token(token),),
+    ).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(status_code=401, detail="Sign in to continue")
+    email, subscription_id, expires_at, tier = row
+    try:
+        if parse_utc_timestamp(expires_at) <= datetime.datetime.now(datetime.timezone.utc):
+            raise HTTPException(status_code=401, detail="Your sign-in expired. Request a new link.")
+        subscription = stripe.Subscription.retrieve(subscription_id)
+    except stripe.error.StripeError:
+        raise HTTPException(status_code=503, detail="Could not verify your subscription right now")
+    if subscription.status not in ("active", "trialing"):
+        raise HTTPException(status_code=401, detail="Subscription is not active")
+    return {"email": email, "subscription_id": subscription_id, "tier": tier, "subscription": subscription}
+
+
+@app.get("/member/profile")
+async def member_profile(request: Request):
+    member = require_member_session(request)
+    return {
+        "email": member["email"],
+        "tier": member["tier"],
+        "has_chat": ENABLE_TIER2_TIER3 and member["tier"] in ("tier2", "tier3"),
+        "cancel_at_period_end": bool(member["subscription"].cancel_at_period_end),
+        "current_period_end": member["subscription"].current_period_end,
+    }
+
+
+class MemberChatRequest(BaseModel):
+    message: str
+    history: list = Field(default_factory=list)
+
+
+@app.post("/member/chat")
+async def member_chat(request: Request, body: MemberChatRequest):
+    member = require_member_session(request)
+    if not ENABLE_TIER2_TIER3 or member["tier"] not in ("tier2", "tier3"):
+        raise HTTPException(status_code=403, detail="The companion is available on Tier 2 and Tier 3")
+    if len(body.message) > 4000:
+        raise HTTPException(status_code=413, detail="Message is too long")
+    safe_history = [
+        item for item in body.history[-20:]
+        if isinstance(item, dict)
+        and item.get("role") in ("user", "assistant")
+        and isinstance(item.get("content"), str)
+    ]
+    return {"reply": get_chat_response(body.message, conversation_history=safe_history)}
+
+
+@app.post("/member/cancel")
+async def member_cancel(request: Request):
+    member = require_member_session(request)
+    try:
+        stripe.Subscription.modify(member["subscription_id"], cancel_at_period_end=True)
+    except stripe.error.StripeError:
+        raise HTTPException(status_code=502, detail="Could not schedule cancellation right now")
+    return {"status": "cancellation_scheduled", "cancel_at_period_end": True, "cancellation_fee": 0}
+
+
+@app.post("/member/logout")
+async def member_logout(request: Request):
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token and len(token) <= 200:
+        db = get_db()
+        db.execute("DELETE FROM member_sessions WHERE token_hash = ?", (hash_token(token),))
+        db.commit()
+        db.close()
+    return {"status": "signed_out"}
 
 
 def create_nextdns_profile(customer_email: str, tier: str) -> str:
