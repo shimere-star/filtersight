@@ -58,12 +58,127 @@ query_params = st.query_params
 email = st.text_input("Email address")
 normalized_email = email.strip().lower()
 
+
+def render_member_dashboard():
+    st.title("Your Filtersight dashboard")
+    st.caption("Sign in with the email address on your subscription.")
+
+    token = st.session_state.get("member_access_token")
+    magic_token = query_params.get("magic_token")
+    if not token and magic_token:
+        st.info("Your sign-in link is ready. Select below to finish signing in.")
+        if st.button("Sign in to Filtersight"):
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/member/verify-link",
+                    json={"token": magic_token},
+                    timeout=15,
+                )
+                response.raise_for_status()
+                st.session_state.member_access_token = response.json()["access_token"]
+                del query_params["magic_token"]
+                st.rerun()
+            except requests.RequestException:
+                st.error("That sign-in link expired or has already been used. Request a new one below.")
+        st.divider()
+
+    token = st.session_state.get("member_access_token")
+    if not token:
+        member_email = st.text_input("Subscription email", key="member_email")
+        if st.button("Email me a sign-in link"):
+            if not member_email.strip():
+                st.error("Enter the email address used at checkout.")
+            else:
+                try:
+                    response = requests.post(
+                        f"{BACKEND_URL}/member/request-link",
+                        json={"email": member_email.strip().lower()},
+                        timeout=15,
+                    )
+                    if response.ok:
+                        st.success("If that address has an active subscription, we sent a sign-in link. Check your inbox and spam folder.")
+                    elif response.status_code == 503:
+                        st.error("Email sign-in is not configured yet. Contact support for account help.")
+                    else:
+                        st.error("We couldn't send a sign-in link right now. Please try again later.")
+                except requests.RequestException:
+                    st.error("We couldn't reach account sign-in. Please try again later.")
+        return
+
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = requests.get(f"{BACKEND_URL}/member/profile", headers=headers, timeout=15)
+        response.raise_for_status()
+        profile = response.json()
+    except requests.RequestException:
+        st.session_state.pop("member_access_token", None)
+        st.error("Your sign-in expired or your subscription could not be verified. Request a new link below.")
+        st.rerun()
+
+    st.success(f"Signed in as {profile['email']} · {profile['tier'].replace('tier', 'Tier ')}")
+    if profile["cancel_at_period_end"]:
+        st.info("Your subscription is set to end at the close of the current billing period. No cancellation fee is charged.")
+    else:
+        with st.expander("Manage subscription"):
+            st.write("Your plan stays active through the current billing period. Canceling has no fee.")
+            if st.button("Cancel my subscription"):
+                try:
+                    response = requests.post(f"{BACKEND_URL}/member/cancel", headers=headers, timeout=15)
+                    response.raise_for_status()
+                    st.success("Cancellation scheduled for the end of your current billing period. No fee was charged.")
+                    st.rerun()
+                except requests.RequestException:
+                    st.error("We couldn't schedule cancellation right now. Please try again.")
+
+    if profile["has_chat"]:
+        st.divider()
+        st.subheader("Filtersight companion")
+        st.caption("A calm, focused place to talk through urges and coping in the moment.")
+        if "member_chat_history" not in st.session_state:
+            st.session_state.member_chat_history = []
+        for item in st.session_state.member_chat_history:
+            with st.chat_message(item["role"]):
+                st.write(item["content"])
+        prompt = st.chat_input("What’s going on right now?")
+        if prompt:
+            history = st.session_state.member_chat_history[-20:]
+            st.session_state.member_chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/member/chat",
+                    headers=headers,
+                    json={"message": prompt, "history": history},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                reply = response.json().get("reply", "I'm here. Can you tell me a bit more about what's going on?")
+            except requests.RequestException:
+                reply = "I couldn't connect just now. Please try again in a moment."
+            st.session_state.member_chat_history.append({"role": "assistant", "content": reply})
+            with st.chat_message("assistant"):
+                st.write(reply)
+    else:
+        st.info("The AI companion is included with Tier 2 and Tier 3. Your current plan includes subscription management here.")
+
+    if st.button("Sign out"):
+        try:
+            requests.post(f"{BACKEND_URL}/member/logout", headers=headers, timeout=10)
+        except requests.RequestException:
+            pass
+        st.session_state.pop("member_access_token", None)
+        st.session_state.pop("member_chat_history", None)
+        st.rerun()
+
 # ---------------------------------------------------------------------------
 # STEP 1: Pick a tier, then send the customer to real Stripe Checkout
 # (hosted by Stripe, not built by us — this is the correct/secure way to
 # collect card details).
 # ---------------------------------------------------------------------------
-if query_params.get("session_id") is None:
+if query_params.get("view") == "member":
+    render_member_dashboard()
+elif query_params.get("session_id") is None:
     st.subheader("Choose your plan")
     tier_key = st.radio(
         "Plan",
@@ -123,6 +238,7 @@ else:
             st.error("This plan isn't available yet. Your payment is being reviewed; contact support if you were charged.")
             st.stop()
         st.success(f"Payment verified for {customer_email}. Preparing your profile…")
+        st.link_button("Open your member dashboard", f"{APP_BASE_URL}/?view=member")
 
         try:
             profile_response = requests.post(
