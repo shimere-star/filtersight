@@ -17,6 +17,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")    # where 
 STRIPE_PRICE_TIER1 = os.environ.get("STRIPE_PRICE_TIER1")  # Filter — $5/mo
 STRIPE_PRICE_TIER2 = os.environ.get("STRIPE_PRICE_TIER2")  # Filter + Companion — $10/mo
 STRIPE_PRICE_TIER3 = os.environ.get("STRIPE_PRICE_TIER3")  # Complete — $13/mo
+ENABLE_TIER2_TIER3 = os.environ.get("ENABLE_TIER2_TIER3", "false").lower() in ("1", "true", "yes")
 
 TIERS = {
     "tier1": {
@@ -47,6 +48,7 @@ TIERS = {
         "has_partner": True,
     },
 }
+AVAILABLE_TIERS = TIERS if ENABLE_TIER2_TIER3 else {"tier1": TIERS["tier1"]}
 
 st.set_page_config(page_title="Filtersight", page_icon="🔒")
 st.title("Filtersight")
@@ -65,7 +67,7 @@ if query_params.get("session_id") is None:
     st.subheader("Choose your plan")
     tier_key = st.radio(
         "Plan",
-        options=list(TIERS.keys()),
+        options=list(AVAILABLE_TIERS.keys()),
         format_func=lambda k: TIERS[k]["label"],
     )
     st.caption(TIERS[tier_key]["description"])
@@ -117,6 +119,9 @@ else:
         if verify_error:
             st.caption(f"Debug info: {verify_error}")
     else:
+        if tier_key in ("tier2", "tier3") and not ENABLE_TIER2_TIER3:
+            st.error("This plan isn't available yet. Your payment is being reviewed; contact support if you were charged.")
+            st.stop()
         st.success(f"Payment verified for {customer_email}. Preparing your profile…")
 
         try:
