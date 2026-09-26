@@ -51,12 +51,15 @@ TIERS = {
 AVAILABLE_TIERS = TIERS if ENABLE_TIER2_TIER3 else {"tier1": TIERS["tier1"]}
 
 st.set_page_config(page_title="Filtersight", page_icon="🔒")
-st.title("Filtersight")
-st.write("Block adult content system-wide, with accountability built in. From $5/month.")
-
 query_params = st.query_params
-email = st.text_input("Email address")
-normalized_email = email.strip().lower()
+is_member_view = query_params.get("view") == "member"
+if not is_member_view:
+    st.title("Filtersight")
+    st.write("Block adult content system-wide, with accountability built in. From $5/month.")
+    email = st.text_input("Email address")
+    normalized_email = email.strip().lower()
+else:
+    normalized_email = ""
 
 
 def render_member_dashboard():
@@ -373,75 +376,4 @@ else:
                     except requests.RequestException as e:
                         st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
 
-        # -------------------------------------------------------------
-        # STEP 4: AI companion chat — Tier 2 and Tier 3 only. Tier 1
-        # never sees this section at all.
-        # -------------------------------------------------------------
-        if tier_info["has_chat"]:
-            st.divider()
-            st.subheader("Talk to your companion")
-            st.caption("For urges, cravings, or just talking something through. Not a general assistant.")
-
-            if "chat_history" not in st.session_state:
-                st.session_state.chat_history = []
-
-            for msg in st.session_state.chat_history:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
-
-            user_message = st.chat_input("Type a message...")
-            if user_message:
-                st.session_state.chat_history.append({"role": "user", "content": user_message})
-                with st.chat_message("user"):
-                    st.write(user_message)
-
-                with st.chat_message("assistant"):
-                    with st.spinner("..."):
-                        try:
-                            resp = requests.post(
-                                f"{BACKEND_URL}/chat",
-                                json={
-                                    "message": user_message,
-                                    "history": st.session_state.chat_history[:-1],
-                                    "checkout_session_id": session_id,
-                                },
-                                timeout=30,
-                            )
-                            if resp.ok:
-                                reply = resp.json().get("reply", "Sorry, something went wrong. Try again?")
-                            else:
-                                reply = "Couldn't reach the chat right now. Try again in a moment."
-                        except requests.RequestException:
-                            reply = "Couldn't reach the chat right now. Try again in a moment."
-                        st.write(reply)
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-
-        # -------------------------------------------------------------
-        # STEP 5: Cancellation — available to every tier.
-        # -------------------------------------------------------------
-        st.divider()
-        with st.expander("Manage subscription"):
-            st.write("Your subscription will remain active until the end of the current billing period. There is no cancellation fee.")
-
-            if st.button("Cancel my subscription"):
-                try:
-                    resp = requests.post(
-                        f"{BACKEND_URL}/request-cancellation",
-                        params={
-                            "checkout_session_id": session_id,
-                        },
-                        timeout=10,
-                    )
-                    if resp.ok:
-                        data = resp.json()
-                        status = data.get("status")
-                        if status == "cancelled":
-                            st.success("Your subscription has been cancelled.")
-                        elif status == "cancellation_scheduled":
-                            st.success("Your cancellation is scheduled for the end of your current billing period. No fee was charged.")
-                        else:
-                            st.info(str(data))
-                    else:
-                        st.error(f"Backend error: {resp.status_code} — {resp.text}")
-                except requests.RequestException as e:
-                    st.error(f"Couldn't reach the backend at {BACKEND_URL}: {e}")
+        st.info("Sign in to your member dashboard to manage your subscription and, for eligible plans, continue chatting with your companion.")
