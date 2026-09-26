@@ -14,7 +14,6 @@ Keep the form behavior and published policy pages consistent with the descriptio
 
 - Submit/resubmit the A2P campaign in Twilio with the live signup and policy URLs.
 - Confirm Twilio has approved the campaign and the sender is associated with it.
-- Set `ENABLE_TIER2_TIER3=true` on both Railway services only after the campaign is approved and the scheduler is configured. It defaults to false, which keeps Tier 2 and Tier 3 unavailable.
 - Configure a single scheduled caller for `POST /poll-nextdns-and-notify` every five minutes, with the `X-Admin-Secret` header set to the backend's `BACKFILL_ADMIN_SECRET`.
 - Keep that schedule disabled until Twilio has approved messaging. The endpoint is protected and the profile polling is per paid Tier 2/3 subscription.
 - The signup and backend enforce `ENABLE_TIER2_TIER3`; it defaults to false. With the flag off, Tier 2/3 are hidden and their API/SMS features are unavailable. Turn it on only after approval and scheduler setup.
