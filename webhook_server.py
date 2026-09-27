@@ -459,6 +459,29 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
         profile = {key: copy.deepcopy(template[key]) for key in (
             "security", "privacy", "parentalControl", "denylist", "allowlist", "settings"
         ) if key in template}
+        # The profile GET endpoint includes read-only metadata for list entries
+        # (e.g. names, descriptions, and counts). The create endpoint accepts only
+        # writable fields, so trim each array item to its API payload shape.
+        for section_key, list_key, allowed_keys in (
+            ("security", "tlds", ("id",)),
+            ("privacy", "blocklists", ("id",)),
+            ("privacy", "natives", ("id",)),
+            ("parentalControl", "categories", ("id", "active")),
+            ("parentalControl", "services", ("id", "active")),
+            (None, "denylist", ("id", "active")),
+            (None, "allowlist", ("id", "active")),
+        ):
+            section = profile if section_key is None else profile.get(section_key)
+            if not isinstance(section, dict):
+                continue
+            entries = section.get(list_key)
+            if isinstance(entries, list):
+                section[list_key] = [
+                    {key: copy.deepcopy(item[key]) for key in allowed_keys if key in item}
+                    for item in entries
+                    if isinstance(item, dict) and isinstance(item.get("id"), str)
+                ]
+
         profile["name"] = f"Filtersight {uuid.uuid4().hex[:12]}"
         parental = profile.setdefault("parentalControl", {})
         categories = parental.setdefault("categories", [])
