@@ -438,7 +438,7 @@ async def member_logout(request: Request):
     return {"status": "signed_out"}
 
 
-def create_nextdns_profile(customer_email: str, tier: str) -> str:
+def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str) -> str:
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=503, detail="NextDNS profile template is not configured")
     headers = {"X-Api-Key": NEXTDNS_API_KEY}
@@ -483,7 +483,31 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
                     if isinstance(item, dict) and isinstance(item.get("id"), str)
                 ]
 
-        profile["name"] = f"Filtersight {uuid.uuid4().hex[:12]}"
+        # Use a stable per-subscription name so a retry can find a profile
+        # created by a request whose response timed out.
+        profile_name = f"Filtersight {hashlib.sha256(subscription_id.encode()).hexdigest()[:12]}"
+        request_stage = "find_existing_profile"
+        existing_response = requests.get(
+            "https://api.nextdns.io/profiles",
+            headers=headers,
+            timeout=30,
+        )
+        if not existing_response.ok:
+            logger.warning(
+                "NextDNS profile list failed: status=%s response=%s",
+                existing_response.status_code,
+                existing_response.text[:500],
+            )
+        existing_response.raise_for_status()
+        existing_data = existing_response.json().get("data", [])
+        if isinstance(existing_data, list):
+            existing = next(
+                (item for item in existing_data if isinstance(item, dict) and item.get("name") == profile_name),
+                None,
+            )
+            if existing and existing.get("id"):
+                return existing["id"]
+        profile["name"] = profile_name
         parental = profile.setdefault("parentalControl", {})
         categories = parental.setdefault("categories", [])
         porn = next((item for item in categories if item.get("id") == "porn"), None)
@@ -506,7 +530,7 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
             "https://api.nextdns.io/profiles",
             headers={**headers, "Content-Type": "application/json"},
             json=profile,
-            timeout=15,
+            timeout=60,
         )
         if not created.ok:
             logger.warning(
@@ -670,7 +694,7 @@ async def provision_nextdns_profile(body: CheckoutSessionRequest):
         db.close()
         return {"profile_id": row[0]}
 
-    profile_id = create_nextdns_profile(checkout["email"], checkout["tier"])
+    profile_id = create_nextdns_profile(checkout["email"], checkout["tier"], checkout["subscription_id"])
     checked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     db.execute(
         """INSERT INTO customers (
