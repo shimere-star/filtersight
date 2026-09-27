@@ -247,7 +247,7 @@ else:
             profile_response = requests.post(
                 f"{BACKEND_URL}/provision-nextdns-profile",
                 json={"checkout_session_id": session_id},
-                timeout=30,
+                timeout=90,
             )
             profile_response.raise_for_status()
             nextdns_profile_id = profile_response.json()["profile_id"]
