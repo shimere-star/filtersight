@@ -442,51 +442,10 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=503, detail="NextDNS profile template is not configured")
     headers = {"X-Api-Key": NEXTDNS_API_KEY}
-    request_stage = "fetch_template"
+    profile_name = f"Filtersight {hashlib.sha256(subscription_id.encode()).hexdigest()[:12]}"
+    request_stage = "find_existing_profile"
     try:
-        template_response = requests.get(
-            f"https://api.nextdns.io/profiles/{NEXTDNS_PROFILE_ID}",
-            headers=headers,
-            timeout=15,
-        )
-        if not template_response.ok:
-            logger.warning(
-                "NextDNS template fetch failed: status=%s response=%s",
-                template_response.status_code,
-                template_response.text[:500],
-            )
-        template_response.raise_for_status()
-        template = template_response.json().get("data", {})
-        profile = {key: copy.deepcopy(template[key]) for key in (
-            "security", "privacy", "parentalControl", "denylist", "allowlist", "settings"
-        ) if key in template}
-        # The profile GET endpoint includes read-only metadata for list entries
-        # (e.g. names, descriptions, and counts). The create endpoint accepts only
-        # writable fields, so trim each array item to its API payload shape.
-        for section_key, list_key, allowed_keys in (
-            ("security", "tlds", ("id",)),
-            ("privacy", "blocklists", ("id",)),
-            ("privacy", "natives", ("id",)),
-            ("parentalControl", "categories", ("id", "active")),
-            ("parentalControl", "services", ("id", "active")),
-            (None, "denylist", ("id", "active")),
-            (None, "allowlist", ("id", "active")),
-        ):
-            section = profile if section_key is None else profile.get(section_key)
-            if not isinstance(section, dict):
-                continue
-            entries = section.get(list_key)
-            if isinstance(entries, list):
-                section[list_key] = [
-                    {key: copy.deepcopy(item[key]) for key in allowed_keys if key in item}
-                    for item in entries
-                    if isinstance(item, dict) and isinstance(item.get("id"), str)
-                ]
-
-        # Use a stable per-subscription name so a retry can find a profile
-        # created by a request whose response timed out.
-        profile_name = f"Filtersight {hashlib.sha256(subscription_id.encode()).hexdigest()[:12]}"
-        request_stage = "find_existing_profile"
+        # Reuse a profile if an earlier POST completed but its response was lost.
         existing_response = requests.get(
             "https://api.nextdns.io/profiles",
             headers=headers,
@@ -507,24 +466,21 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
             )
             if existing and existing.get("id"):
                 return existing["id"]
-        profile["name"] = profile_name
-        parental = profile.setdefault("parentalControl", {})
-        categories = parental.setdefault("categories", [])
-        porn = next((item for item in categories if item.get("id") == "porn"), None)
-        if porn:
-            porn["active"] = True
-        else:
-            categories.append({"id": "porn", "active": True})
 
-        # DNS query logs are required to detect blocked-content attempts. Keep
-        # this enabled only for tiers that explicitly include accountability.
-        if tier in ("tier2", "tier3"):
-            logs = profile.setdefault("settings", {}).setdefault("logs", {})
-            logs["enabled"] = True
-            logs["drop"] = {**(logs.get("drop") or {}), "ip": True, "domain": False}
-        else:
-            profile.setdefault("settings", {}).setdefault("logs", {})["enabled"] = False
-
+        # Keep this payload deliberately small while isolating the API failure:
+        # adult-content filtering plus only the log controls needed by each tier.
+        profile = {
+            "name": profile_name,
+            "parentalControl": {
+                "categories": [{"id": "porn", "active": True}],
+            },
+            "settings": {
+                "logs": {
+                    "enabled": tier in ("tier2", "tier3"),
+                    "drop": {"ip": True, "domain": False},
+                },
+            },
+        }
         request_stage = "create_profile"
         created = requests.post(
             "https://api.nextdns.io/profiles",
@@ -561,10 +517,9 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
     except requests.RequestException as e:
         logger.warning(
             "NextDNS profile setup request failed: stage=%s error_type=%s",
-            request_stage,
-            type(e).__name__,
+            request_stage, type(e).__name__,
         )
-        raise HTTPException(status_code=502, detail=f"NextDNS profile setup failed: {e}")
+        raise HTTPException(status_code=502, detail="NextDNS profile setup failed") from e
 
 
 def send_attempt_notifications(row, domain: str = ""):
