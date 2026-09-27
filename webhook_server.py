@@ -20,6 +20,7 @@ import hmac
 import uuid
 import hashlib
 import secrets
+import logging
 import smtplib
 import ssl
 import stripe
@@ -37,6 +38,7 @@ from encouragement_messages import ENCOURAGEMENT_MESSAGES
 from chatbot import get_chat_response
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 # --- Config (set these as real environment variables, never hardcode) -----
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
@@ -446,6 +448,12 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
             headers=headers,
             timeout=15,
         )
+        if not template_response.ok:
+            logger.warning(
+                "NextDNS template fetch failed: status=%s response=%s",
+                template_response.status_code,
+                template_response.text[:500],
+            )
         template_response.raise_for_status()
         template = template_response.json().get("data", {})
         profile = {key: copy.deepcopy(template[key]) for key in (
@@ -475,9 +483,30 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
             json=profile,
             timeout=15,
         )
+        if not created.ok:
+            logger.warning(
+                "NextDNS profile creation failed: status=%s response=%s",
+                created.status_code,
+                created.text[:500],
+            )
         created.raise_for_status()
-        profile_id = created.json().get("data", {}).get("id")
+        try:
+            created_payload = created.json()
+        except ValueError as e:
+            logger.warning(
+                "NextDNS profile creation returned invalid JSON: status=%s response=%s",
+                created.status_code,
+                created.text[:500],
+            )
+            raise HTTPException(status_code=502, detail="NextDNS returned an invalid profile response") from e
+        profile_data = created_payload.get("data")
+        profile_id = profile_data.get("id") if isinstance(profile_data, dict) else None
         if not profile_id:
+            logger.warning(
+                "NextDNS profile creation returned no profile ID: status=%s response=%s",
+                created.status_code,
+                created.text[:500],
+            )
             raise HTTPException(status_code=502, detail="NextDNS did not return a profile ID")
         return profile_id
     except requests.RequestException as e:
