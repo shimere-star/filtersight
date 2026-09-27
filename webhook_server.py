@@ -442,6 +442,7 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=503, detail="NextDNS profile template is not configured")
     headers = {"X-Api-Key": NEXTDNS_API_KEY}
+    request_stage = "fetch_template"
     try:
         template_response = requests.get(
             f"https://api.nextdns.io/profiles/{NEXTDNS_PROFILE_ID}",
@@ -500,6 +501,7 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
         else:
             profile.setdefault("settings", {}).setdefault("logs", {})["enabled"] = False
 
+        request_stage = "create_profile"
         created = requests.post(
             "https://api.nextdns.io/profiles",
             headers={**headers, "Content-Type": "application/json"},
@@ -533,6 +535,11 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
             raise HTTPException(status_code=502, detail="NextDNS did not return a profile ID")
         return profile_id
     except requests.RequestException as e:
+        logger.warning(
+            "NextDNS profile setup request failed: stage=%s error_type=%s",
+            request_stage,
+            type(e).__name__,
+        )
         raise HTTPException(status_code=502, detail=f"NextDNS profile setup failed: {e}")
 
 
