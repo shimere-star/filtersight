@@ -370,7 +370,11 @@ else:
                             timeout=10,
                         )
                         if resp.ok:
-                            st.success("Saved. If you added an accountability partner, they must reply YES before receiving alerts.")
+                            result = resp.json()
+                            if result.get("sms_enabled"):
+                                st.success("Saved. If you added an accountability partner, they must reply YES before receiving alerts.")
+                            else:
+                                st.success("Saved for testing. Text messages are disabled; no texts were sent.")
                         else:
                             st.error(f"Backend error: {resp.status_code} — {resp.text}")
                     except requests.RequestException as e:

@@ -46,6 +46,7 @@ TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")  # your Twilio number
 SMS_CONSENT_VERSION = "2026-09-25-v1"
 ENABLE_TIER2_TIER3 = os.environ.get("ENABLE_TIER2_TIER3", "false").lower() in ("1", "true", "yes")
+ENABLE_SMS = os.environ.get("ENABLE_SMS", "false").lower() in ("1", "true", "yes")
 
 twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else None
 
@@ -485,7 +486,7 @@ def create_nextdns_profile(customer_email: str, tier: str) -> str:
 
 def send_attempt_notifications(row, domain: str = ""):
     tier, user_phone, accountability_phone, user_opted_in, partner_opted_in, partner_status = row
-    if tier == "tier1" or not ENABLE_TIER2_TIER3:
+    if tier == "tier1" or not ENABLE_TIER2_TIER3 or not ENABLE_SMS:
         return []
     send_to_user = bool(user_phone and user_opted_in)
     send_to_partner = bool(
@@ -656,7 +657,7 @@ async def save_contact(body: SaveContactRequest):
         raise HTTPException(status_code=400, detail="A phone number is required when opting in to SMS")
     if tier == "tier3" and not accountability_phone:
         raise HTTPException(status_code=400, detail="An accountability partner phone number is required")
-    if accountability_phone and not twilio_client:
+    if accountability_phone and ENABLE_SMS and not twilio_client:
         raise HTTPException(status_code=503, detail="SMS invitations are not configured")
 
     db = get_db()
@@ -672,6 +673,7 @@ async def save_contact(body: SaveContactRequest):
     invitation_needed = bool(accountability_phone) and (
         previous[0] != accountability_phone or previous[1] not in ("pending", "confirmed")
     )
+    send_invitation = invitation_needed and ENABLE_SMS
     db.execute(
         """UPDATE customers
            SET tier = ?, user_phone = ?, accountability_phone = ?, user_sms_opted_in = ?,
@@ -684,8 +686,10 @@ async def save_contact(body: SaveContactRequest):
          int(body.user_sms_opted_in), int(body.user_sms_opted_in),
          datetime.datetime.now(datetime.timezone.utc).isoformat(),
          int(body.user_sms_opted_in), SMS_CONSENT_VERSION,
-         "pending" if accountability_phone and invitation_needed else (
+         "pending" if accountability_phone and send_invitation else (
+             "not_invited" if accountability_phone and invitation_needed else (
              previous[1] if accountability_phone else None
+             )
          ),
          previous[2] if accountability_phone and not invitation_needed else None,
          previous[3] if accountability_phone and not invitation_needed else 0,
@@ -693,7 +697,7 @@ async def save_contact(body: SaveContactRequest):
     )
     db.commit()
 
-    if invitation_needed:
+    if send_invitation:
         try:
             twilio_client.messages.create(
                 body=(
@@ -708,8 +712,12 @@ async def save_contact(body: SaveContactRequest):
             db.close()
             raise HTTPException(status_code=502, detail=f"Could not send the partner opt-in invitation: {e}")
     db.close()
-    current_status = "pending" if invitation_needed else (previous[1] if accountability_phone else None)
-    return {"status": "saved", "partner_opt_in_status": current_status}
+    current_status = (
+        "pending" if send_invitation else
+        "not_invited" if invitation_needed else
+        (previous[1] if accountability_phone else None)
+    )
+    return {"status": "saved", "partner_opt_in_status": current_status, "sms_enabled": ENABLE_SMS}
 
 
 # ---------------------------------------------------------------------------
@@ -1073,6 +1081,8 @@ async def check_for_removed_profiles(request: Request):
     require_admin_secret(request)
     if not ENABLE_TIER2_TIER3:
         raise HTTPException(status_code=503, detail="Tier 2 and Tier 3 are not enabled yet")
+    if not ENABLE_SMS:
+        return {"notified": [], "sms_enabled": False}
     if not twilio_client:
         raise HTTPException(status_code=500, detail="Twilio not configured")
 
@@ -1103,9 +1113,11 @@ async def check_for_removed_profiles(request: Request):
             f"Filtersight: it looks like the filter on {email}'s device may have been "
             f"removed or disabled — no activity in the last {REMOVAL_SILENCE_HOURS} hours."
         )
-        if user_phone and user_sms_opted_in:
+        if ENABLE_SMS and user_phone and user_sms_opted_in:
             twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
         if (
+            ENABLE_SMS
+            and
             tier == "tier3"
             and partner_opt_in_status == "confirmed"
             and accountability_phone
