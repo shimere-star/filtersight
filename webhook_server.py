@@ -21,6 +21,7 @@ import uuid
 import hashlib
 import secrets
 import logging
+import time
 import smtplib
 import ssl
 import stripe
@@ -39,6 +40,8 @@ from chatbot import get_chat_response
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
+# Railway captures stdout/stderr: make sure INFO logs are actually emitted.
+logging.basicConfig(level=logging.INFO)
 
 # --- Config (set these as real environment variables, never hardcode) -----
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
@@ -197,6 +200,11 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _request_id() -> str:
+    """Random correlation ID for logs — carries no information about the request."""
+    return secrets.token_hex(6)
+
+
 def send_member_signin_email(email: str, token: str) -> None:
     if not SMTP_HOST or not SMTP_FROM_EMAIL:
         raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
@@ -220,6 +228,11 @@ def send_member_signin_email(email: str, token: str) -> None:
                 server.login(SMTP_USERNAME, SMTP_PASSWORD or "")
             server.send_message(message)
     except (OSError, smtplib.SMTPException) as e:
+        # Class name + numeric SMTP reply code only: no raw exception text,
+        # no addresses, tokens, or credentials.
+        smtp_code = getattr(e, "smtp_code", None)
+        logger.error("send_member_signin_email failed error=%s smtp_code=%s",
+                     type(e).__name__, smtp_code if isinstance(smtp_code, int) else "-")
         raise HTTPException(status_code=502, detail="Could not send the sign-in email") from e
 
 
@@ -234,9 +247,14 @@ class MemberMagicLinkRequest(BaseModel):
 @app.post("/member/request-link")
 async def member_request_link(body: MemberEmailRequest):
     email = body.email.strip().lower()
+    ref = _request_id()
+    t0 = time.monotonic()
+    logger.info("request-link received ref=%s", ref)
     if len(email) > 254 or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        logger.info("request-link invalid_email ref=%s", ref)
         raise HTTPException(status_code=400, detail="Enter a valid email address")
     if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        logger.error("request-link smtp_not_configured ref=%s", ref)
         raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
 
     generic = "If that email has an active Filtersight subscription, a sign-in link will be sent."
@@ -246,6 +264,8 @@ async def member_request_link(body: MemberEmailRequest):
            WHERE email = ? AND active = 1 AND stripe_subscription_id IS NOT NULL""",
         (email,),
     ).fetchone()
+    logger.info("request-link db_lookup ref=%s matched=%s elapsed=%.1fs",
+                ref, row is not None, time.monotonic() - t0)
     if not row:
         db.close()
         return {"status": generic}
@@ -258,17 +278,24 @@ async def member_request_link(body: MemberEmailRequest):
         try:
             last_sent = parse_utc_timestamp(previous[0])
             if last_sent and (now - last_sent).total_seconds() < 120:
+                logger.info("request-link rate_limited ref=%s", ref)
                 db.close()
                 return {"status": generic}
         except ValueError:
             pass
 
+    t1 = time.monotonic()
     try:
         subscription = stripe.Subscription.retrieve(row[0])
-    except stripe.error.StripeError:
+    except stripe.error.StripeError as e:
+        logger.warning("request-link stripe_error ref=%s error=%s elapsed=%.1fs",
+                       ref, type(e).__name__, time.monotonic() - t1)
         db.close()
         return {"status": generic}
+    logger.info("request-link stripe_lookup ref=%s status=%s elapsed=%.1fs",
+                ref, subscription.status, time.monotonic() - t1)
     if subscription.status not in ("active", "trialing"):
+        logger.info("request-link subscription_inactive ref=%s", ref)
         db.close()
         return {"status": generic}
 
@@ -284,14 +311,21 @@ async def member_request_link(body: MemberEmailRequest):
     )
     db.commit()
     db.close()
+    t2 = time.monotonic()
     try:
+        logger.info("request-link send_attempt ref=%s host=%s port=%s",
+                    ref, SMTP_HOST, SMTP_PORT)
         send_member_signin_email(email, token)
-    except HTTPException:
+    except HTTPException as e:
+        logger.error("request-link send_failed ref=%s status=%s elapsed=%.1fs",
+                     ref, e.status_code, time.monotonic() - t2)
         db = get_db()
         db.execute("DELETE FROM member_magic_links WHERE email = ?", (email,))
         db.commit()
         db.close()
         return {"status": generic}
+    logger.info("request-link send_ok ref=%s elapsed=%.1fs",
+                ref, time.monotonic() - t2)
     return {"status": generic}
 
 
