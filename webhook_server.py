@@ -211,8 +211,8 @@ def send_member_signin_email(email: str, token: str) -> None:
             "type": "text/plain",
             "value": (
                 "Use this one-time link to open your Filtersight member page. "
-                "It expires in 15 minutes and can only be used once.\\n\\n"
-                f"{link}\\n\\nIf you did not request this email, you can ignore it."
+                "It expires in 15 minutes and can only be used once.\n\n"
+                f"{link}\n\nIf you did not request this email, you can ignore it."
             ),
         }],
     }
@@ -255,7 +255,7 @@ async def member_request_link(body: MemberEmailRequest):
         logger.info("request-link invalid_email ref=%s", ref)
         raise HTTPException(status_code=400, detail="Enter a valid email address")
     if not SENDGRID_API_KEY or not SENDGRID_FROM_EMAIL:
-        logger.error("request-link smtp_not_configured ref=%s", ref)
+        logger.error("request-link sendgrid_not_configured ref=%s", ref)
         raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
 
     generic = "If that email has an active Filtersight subscription, a sign-in link will be sent."
