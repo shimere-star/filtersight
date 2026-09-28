@@ -22,13 +22,10 @@ import hashlib
 import secrets
 import logging
 import time
-import smtplib
-import ssl
 import stripe
 import requests
 import phonenumbers
 from phonenumbers import NumberParseException
-from email.message import EmailMessage
 from urllib.parse import parse_qs, urlencode
 from fastapi import FastAPI, Request, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -59,13 +56,9 @@ twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else N
 NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
 NEXTDNS_PROFILE_ID = os.environ.get("NEXTDNS_PROFILE_ID")
 BACKFILL_ADMIN_SECRET = os.environ.get("BACKFILL_ADMIN_SECRET")
-SMTP_HOST = os.environ.get("SMTP_HOST")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
-SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in ("1", "true", "yes")
-SMTP_USE_STARTTLS = os.environ.get("SMTP_USE_STARTTLS", "true").lower() in ("1", "true", "yes")
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
+# Reuse the configured verified sender address; allow a SendGrid-specific name too.
+SENDGRID_FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL") or os.environ.get("SMTP_FROM_EMAIL")
 
 DB_PATH = "/data/customers.db"
 
@@ -206,34 +199,42 @@ def _request_id() -> str:
 
 
 def send_member_signin_email(email: str, token: str) -> None:
-    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+    if not SENDGRID_API_KEY or not SENDGRID_FROM_EMAIL:
         raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
     base_url = os.environ.get("APP_BASE_URL", "https://signup-app-v3-production.up.railway.app")
     link = f"{base_url}/?{urlencode({'view': 'member', 'magic_token': token})}"
-    message = EmailMessage()
-    message["Subject"] = "Your Filtersight sign-in link"
-    message["From"] = SMTP_FROM_EMAIL
-    message["To"] = email
-    message.set_content(
-        "Use this one-time link to open your Filtersight member page. "
-        "It expires in 15 minutes and can only be used once.\n\n"
-        f"{link}\n\nIf you did not request this email, you can ignore it."
-    )
+    payload = {
+        "personalizations": [{"to": [{"email": email}]}],
+        "from": {"email": SENDGRID_FROM_EMAIL},
+        "subject": "Your Filtersight sign-in link",
+        "content": [{
+            "type": "text/plain",
+            "value": (
+                "Use this one-time link to open your Filtersight member page. "
+                "It expires in 15 minutes and can only be used once.\n\n"
+                f"{link}\n\nIf you did not request this email, you can ignore it."
+            ),
+        }],
+    }
     try:
-        smtp_class = smtplib.SMTP_SSL if SMTP_USE_SSL else smtplib.SMTP
-        with smtp_class(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-            if SMTP_USE_STARTTLS and not SMTP_USE_SSL:
-                server.starttls(context=ssl.create_default_context())
-            if SMTP_USERNAME:
-                server.login(SMTP_USERNAME, SMTP_PASSWORD or "")
-            server.send_message(message)
-    except (OSError, smtplib.SMTPException) as e:
-        # Class name + numeric SMTP reply code only: no raw exception text,
-        # no addresses, tokens, or credentials.
-        smtp_code = getattr(e, "smtp_code", None)
-        logger.error("send_member_signin_email failed error=%s smtp_code=%s",
-                     type(e).__name__, smtp_code if isinstance(smtp_code, int) else "-")
+        response = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        # Log only exception class; request details may contain private data.
+        logger.error("send_member_signin_email request_failed error=%s", type(e).__name__)
         raise HTTPException(status_code=502, detail="Could not send the sign-in email") from e
+
+    # SendGrid returns 202 when the message is accepted for processing.
+    if response.status_code != 202:
+        logger.error("send_member_signin_email rejected status=%s", response.status_code)
+        raise HTTPException(status_code=502, detail="Could not send the sign-in email")
 
 
 class MemberEmailRequest(BaseModel):
@@ -253,8 +254,8 @@ async def member_request_link(body: MemberEmailRequest):
     if len(email) > 254 or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         logger.info("request-link invalid_email ref=%s", ref)
         raise HTTPException(status_code=400, detail="Enter a valid email address")
-    if not SMTP_HOST or not SMTP_FROM_EMAIL:
-        logger.error("request-link smtp_not_configured ref=%s", ref)
+    if not SENDGRID_API_KEY or not SENDGRID_FROM_EMAIL:
+        logger.error("request-link sendgrid_not_configured ref=%s", ref)
         raise HTTPException(status_code=503, detail="Member email sign-in is not configured")
 
     generic = "If that email has an active Filtersight subscription, a sign-in link will be sent."
@@ -313,8 +314,7 @@ async def member_request_link(body: MemberEmailRequest):
     db.close()
     t2 = time.monotonic()
     try:
-        logger.info("request-link send_attempt ref=%s host=%s port=%s",
-                    ref, SMTP_HOST, SMTP_PORT)
+        logger.info("request-link send_attempt ref=%s provider=sendgrid_https", ref)
         send_member_signin_email(email, token)
     except HTTPException as e:
         logger.error("request-link send_failed ref=%s status=%s elapsed=%.1fs",
@@ -324,7 +324,7 @@ async def member_request_link(body: MemberEmailRequest):
         db.commit()
         db.close()
         return {"status": generic}
-    logger.info("request-link send_ok ref=%s elapsed=%.1fs",
+    logger.info("request-link send_accepted ref=%s status=202 elapsed=%.1fs",
                 ref, time.monotonic() - t2)
     return {"status": generic}
 
