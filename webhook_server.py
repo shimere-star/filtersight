@@ -420,12 +420,15 @@ def require_member_session(request: Request):
 @app.get("/member/profile")
 async def member_profile(request: Request):
     member = require_member_session(request)
+    subscription = member["subscription"]
+    item_list = getattr(getattr(subscription, "items", None), "data", None) or []
+    current_period_end = item_list[0].current_period_end if item_list else None
     return {
         "email": member["email"],
         "tier": member["tier"],
         "has_chat": ENABLE_TIER2_TIER3 and member["tier"] in ("tier2", "tier3"),
-        "cancel_at_period_end": bool(member["subscription"].cancel_at_period_end),
-        "current_period_end": member["subscription"].current_period_end,
+        "cancel_at_period_end": bool(subscription.cancel_at_period_end),
+        "current_period_end": current_period_end,
     }
 
 
