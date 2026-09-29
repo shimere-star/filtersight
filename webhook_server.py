@@ -1239,6 +1239,6 @@ async def request_cancellation(checkout_session_id: str):
             getattr(e, "request_id", None),
             getattr(e, "http_status", None),
         )
-        raise HTTPException(status_code=502, detail=f"Stripe cancellation failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not schedule cancellation right now")
 
     return {"status": "cancellation_scheduled", "cancel_at_period_end": True, "cancellation_fee": 0}
