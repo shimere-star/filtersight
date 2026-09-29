@@ -459,6 +459,10 @@ async def member_cancel(request: Request):
     try:
         stripe.Subscription.modify(member["subscription_id"], cancel_at_period_end=True)
     except stripe.error.StripeError:
+        logger.exception(
+            "member/cancel: Stripe error scheduling cancellation for subscription %s",
+            member["subscription_id"],
+        )
         raise HTTPException(status_code=502, detail="Could not schedule cancellation right now")
     return {"status": "cancellation_scheduled", "cancel_at_period_end": True, "cancellation_fee": 0}
 
@@ -1225,6 +1229,10 @@ async def request_cancellation(checkout_session_id: str):
             cancel_at_period_end=True,
         )
     except stripe.error.StripeError as e:
+        logger.exception(
+            "request-cancellation: Stripe error scheduling cancellation for subscription %s",
+            subscription_id,
+        )
         raise HTTPException(status_code=502, detail=f"Stripe cancellation failed: {e}")
 
     return {"status": "cancellation_scheduled", "cancel_at_period_end": True, "cancellation_fee": 0}
