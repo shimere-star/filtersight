@@ -3,6 +3,4 @@ stripe
 requests
 fastapi
 uvicorn[standard]
-twilio
 anthropic
-phonenumbers

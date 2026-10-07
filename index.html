@@ -73,7 +73,7 @@
   .step p{color:#4A5561; font-size:0.95rem;}
 
   .pricing{
-    display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:24px; padding-top:2vh;
+    display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:24px; padding-top:2vh;
   }
   .plan{
     border:1px solid var(--line); padding:32px; background:#fff;
@@ -118,7 +118,7 @@
 <div class="hero">
   <div class="eyebrow">A quieter kind of accountability</div>
   <h1 class="display">Fight for a better you.</h1>
-  <p class="sub">Filtersight uses DNS filtering to block known adult domains on your iPhone. Start with private filtering; encouragement, chat, and accountability features are coming soon.</p>
+  <p class="sub">Filtersight uses private DNS filtering to block known adult domains across your iPhone, with an optional AI companion when you want support.</p>
   <a href="#pricing" class="cta">Get started</a>
   <div class="cta-note">Takes 2 minutes to set up. Cancel anytime.</div>
 </div>
@@ -138,8 +138,8 @@
       <p>Your device uses a NextDNS profile to block domains in the adult-content category before they load.</p>
     </div>
     <div class="step">
-      <div class="label">03 — Notify</div>
-      <p>On the paid Companion and Complete plans, blocked attempts can trigger support features. A partner receives alerts only after replying YES to their invitation.</p>
+      <div class="label">03 — Get support</div>
+      <p>Choose Filter + Companion for a calm, focused place to talk through urges whenever you need it.</p>
     </div>
   </div>
 </section>
@@ -165,26 +165,15 @@
       <div class="price">$10<span>/mo</span></div>
       <ul>
         <li>Everything in Filter</li>
-        <li>Optional encouragement texts after blocked adult-content attempts</li>
         <li>Narrow-purpose AI chat companion</li>
-        <li>NextDNS logs are used for attempt alerts</li>
+        <li>Available anytime from your member dashboard</li>
+        <li>DNS query logging remains disabled</li>
       </ul>
-      <span class="cta" aria-label="Filter plus Companion is coming soon">Coming soon</span>
-    </div>
-    <div class="plan">
-      <h3>Complete</h3>
-      <div class="price">$13<span>/mo</span></div>
-      <ul>
-        <li>Everything in Filter + Companion</li>
-        <li>Add an accountability partner</li>
-        <li>Partner alerts begin only after they reply YES to their invitation</li>
-        <li>NextDNS logs are used for attempt alerts</li>
-      </ul>
-      <span class="cta" aria-label="Complete is coming soon">Coming soon</span>
+      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Filter + Companion</a>
     </div>
   </div>
   <p style="font-size:0.82rem; color:#8A9298; margin-top:14px; text-align:center;">
-    Filtersight works at the DNS/domain level. It can block known adult domains, but it cannot distinguish adult content from other content when both are served from the same general-purpose website or app. Companion and Complete use NextDNS query logs to detect blocked attempts. SMS consent is collected separately and is not required to purchase.
+    Filtersight works at the DNS/domain level. It can block known adult domains, but it cannot distinguish adult content from other content when both are served from the same general-purpose website or app. DNS query logging is disabled for both plans.
   </p>
 </section>
 
@@ -194,7 +183,6 @@
     <a href="mailto:support@filtersight.com">support@filtersight.com</a>
     <a href="terms.html">Terms</a>
     <a href="privacy.html">Privacy</a>
-    <a href="sms-consent.html">SMS consent details</a>
   </div>
 </footer>
 </body>

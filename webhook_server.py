@@ -1,18 +1,9 @@
-"""
-Filtersight backend — handles two jobs Streamlit can't do well on its own:
-
-1. Stripe webhooks — confirms payments/cancellations server-side (never trust
-   the frontend alone for this).
-2. Accountability notifications — sends a text via Twilio when a customer's
-   DNS filter logs a blocked-content attempt. Who gets texted depends on
-   their tier: tier1 gets nothing (filter-only), tier2 gets a text to their
-   own phone, tier3 gets that PLUS a text to their accountability partner.
+"""Filtersight backend for billing, member access, chat, and DNS profiles.
 
 Run with: uvicorn webhook_server:app --host 0.0.0.0 --port 8000
 """
 
 import os
-import random
 import sqlite3
 import datetime
 import copy
@@ -24,15 +15,9 @@ import logging
 import time
 import stripe
 import requests
-import phonenumbers
-from phonenumbers import NumberParseException
-from urllib.parse import parse_qs, urlencode
-from fastapi import FastAPI, Request, HTTPException, Response
+from urllib.parse import urlencode
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
-from twilio.rest import Client as TwilioClient
-from twilio.request_validator import RequestValidator
-from twilio.twiml.messaging_response import MessagingResponse
-from encouragement_messages import ENCOURAGEMENT_MESSAGES
 from chatbot import get_chat_response
 
 app = FastAPI()
@@ -43,14 +28,7 @@ logging.basicConfig(level=logging.INFO)
 # --- Config (set these as real environment variables, never hardcode) -----
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")  # from Stripe dashboard
-TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER")  # your Twilio number
-SMS_CONSENT_VERSION = "2026-09-25-v1"
-ENABLE_TIER2_TIER3 = os.environ.get("ENABLE_TIER2_TIER3", "false").lower() in ("1", "true", "yes")
-ENABLE_SMS = os.environ.get("ENABLE_SMS", "false").lower() in ("1", "true", "yes")
-
-twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN) if TWILIO_SID else None
+SUPPORTED_TIERS = {"tier1", "tier2"}
 
 # --- NextDNS config (for real-time bypass detection) --------------------
 NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
@@ -72,19 +50,7 @@ def get_db():
             stripe_subscription_id TEXT,
             active INTEGER DEFAULT 1,
             tier TEXT DEFAULT 'tier1',
-            user_phone TEXT,
-            partner_opt_in_status TEXT,
-            partner_opt_in_confirmed_at TEXT,
-            accountability_phone TEXT,
-            user_sms_opted_in INTEGER DEFAULT 0,
-            user_sms_consent_at TEXT,
-            user_sms_consent_version TEXT,
-            accountability_sms_opted_in INTEGER DEFAULT 0,
             nextdns_profile_id TEXT,
-            nextdns_last_checked_at TEXT,
-            nextdns_pagination_cursor TEXT,
-            last_dns_seen TEXT,
-            last_removed_alert_at TEXT,
             removal_fee_paid INTEGER DEFAULT 0
         )
     """)
@@ -109,37 +75,10 @@ def get_db():
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(customers)")}
     if "tier" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN tier TEXT DEFAULT 'tier1'")
-    if "user_phone" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN user_phone TEXT")
-    if "accountability_phone" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN accountability_phone TEXT")
-    if "user_sms_opted_in" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_opted_in INTEGER DEFAULT 0")
-        # Preserve legacy customers: under the old flow, having user_phone
-        # meant the customer had already supplied a texting number.
-        conn.execute("UPDATE customers SET user_sms_opted_in = 1 WHERE user_phone IS NOT NULL AND TRIM(user_phone) != ''")
-    if "user_sms_consent_at" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_consent_at TEXT")
-    if "user_sms_consent_version" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN user_sms_consent_version TEXT")
-    if "accountability_sms_opted_in" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN accountability_sms_opted_in INTEGER DEFAULT 0")
-    if "partner_opt_in_status" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_status TEXT")
-    if "partner_opt_in_confirmed_at" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN partner_opt_in_confirmed_at TEXT")
     if "stripe_subscription_id" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN stripe_subscription_id TEXT")
     if "nextdns_profile_id" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN nextdns_profile_id TEXT")
-    if "nextdns_last_checked_at" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN nextdns_last_checked_at TEXT")
-    if "nextdns_pagination_cursor" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN nextdns_pagination_cursor TEXT")
-    if "last_dns_seen" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN last_dns_seen TEXT")
-    if "last_removed_alert_at" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN last_removed_alert_at TEXT")
     if "removal_fee_paid" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN removal_fee_paid INTEGER DEFAULT 0")
     conn.commit()
@@ -178,8 +117,8 @@ def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
 
     metadata = session.metadata.to_dict() if session.metadata else {}
     tier = metadata.get("tier", "tier1")
-    if tier in ("tier2", "tier3") and not ENABLE_TIER2_TIER3:
-        raise HTTPException(status_code=503, detail="Tier 2 and Tier 3 are not enabled yet")
+    if tier not in SUPPORTED_TIERS:
+        raise HTTPException(status_code=403, detail="This plan is no longer available")
     if allowed_tiers and tier not in allowed_tiers:
         raise HTTPException(status_code=403, detail="This plan does not include this feature")
     details = session.customer_details
@@ -191,6 +130,15 @@ def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def parse_utc_timestamp(value: str):
+    if not value:
+        return None
+    parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
 
 
 def _request_id() -> str:
@@ -426,7 +374,7 @@ async def member_profile(request: Request):
     return {
         "email": member["email"],
         "tier": member["tier"],
-        "has_chat": ENABLE_TIER2_TIER3 and member["tier"] in ("tier2", "tier3"),
+        "has_chat": member["tier"] == "tier2",
         "cancel_at_period_end": bool(subscription.cancel_at_period_end),
         "current_period_end": current_period_end,
     }
@@ -440,8 +388,8 @@ class MemberChatRequest(BaseModel):
 @app.post("/member/chat")
 async def member_chat(request: Request, body: MemberChatRequest):
     member = require_member_session(request)
-    if not ENABLE_TIER2_TIER3 or member["tier"] not in ("tier2", "tier3"):
-        raise HTTPException(status_code=403, detail="The companion is available on Tier 2 and Tier 3")
+    if member["tier"] != "tier2":
+        raise HTTPException(status_code=403, detail="The companion is available on Tier 2")
     if len(body.message) > 4000:
         raise HTTPException(status_code=413, detail="Message is too long")
     safe_history = [
@@ -511,8 +459,8 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
             if existing and existing.get("id"):
                 return existing["id"]
 
-        # Keep this payload deliberately small while isolating the API failure:
-        # adult-content filtering plus only the log controls needed by each tier.
+        # Keep this payload deliberately small. Neither launch plan needs
+        # browsing activity because members open the companion directly.
         profile = {
             "name": profile_name,
             "parentalControl": {
@@ -520,7 +468,7 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
             },
             "settings": {
                 "logs": {
-                    "enabled": tier in ("tier2", "tier3"),
+                    "enabled": False,
                     "drop": {"ip": True, "domain": False},
                 },
             },
@@ -564,39 +512,6 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
             request_stage, type(e).__name__,
         )
         raise HTTPException(status_code=502, detail="NextDNS profile setup failed") from e
-
-
-def send_attempt_notifications(row, domain: str = ""):
-    tier, user_phone, accountability_phone, user_opted_in, partner_opted_in, partner_status = row
-    if tier == "tier1" or not ENABLE_TIER2_TIER3 or not ENABLE_SMS:
-        return []
-    send_to_user = bool(user_phone and user_opted_in)
-    send_to_partner = bool(
-        tier == "tier3" and partner_status == "confirmed"
-        and accountability_phone and partner_opted_in
-    )
-    if not send_to_user and not send_to_partner:
-        return []
-    if not twilio_client:
-        raise HTTPException(status_code=503, detail="Twilio is not configured")
-
-    notified = []
-    if send_to_user:
-        message = random.choice(ENCOURAGEMENT_MESSAGES)
-        twilio_client.messages.create(
-            to=user_phone,
-            from_=TWILIO_FROM_NUMBER,
-            body=f"Filtersight: {message} Reply STOP to opt out.",
-        )
-        notified.append("user")
-    if send_to_partner:
-        twilio_client.messages.create(
-            to=accountability_phone,
-            from_=TWILIO_FROM_NUMBER,
-            body="Filtersight: your accountability partner had a filter bypass attempt just now. Reply STOP to opt out.",
-        )
-        notified.append("partner")
-    return notified
 
 
 # ---------------------------------------------------------------------------
@@ -656,26 +571,6 @@ async def stripe_webhook(request: Request):
     return {"status": "ok"}
 
 
-# ---------------------------------------------------------------------------
-def normalize_phone_e164(phone: str) -> str:
-    phone = (phone or "").strip()
-    if not phone:
-        return ""
-
-    try:
-        parsed = phonenumbers.parse(phone, "US")
-    except NumberParseException:
-        raise HTTPException(status_code=400, detail="Invalid phone number")
-
-    if not phonenumbers.is_valid_number(parsed):
-        raise HTTPException(status_code=400, detail="Invalid phone number")
-
-    return phonenumbers.format_number(
-        parsed,
-        phonenumbers.PhoneNumberFormat.E164,
-    )
-
-
 class CheckoutSessionRequest(BaseModel):
     checkout_session_id: str
 
@@ -683,7 +578,7 @@ class CheckoutSessionRequest(BaseModel):
 @app.post("/provision-nextdns-profile")
 async def provision_nextdns_profile(body: CheckoutSessionRequest):
     """Create or reuse the customer's isolated NextDNS profile after verified payment."""
-    checkout = verify_paid_checkout(body.checkout_session_id, {"tier1", "tier2", "tier3"})
+    checkout = verify_paid_checkout(body.checkout_session_id, SUPPORTED_TIERS)
     db = get_db()
     row = db.execute(
         "SELECT nextdns_profile_id FROM customers WHERE stripe_subscription_id = ?",
@@ -694,21 +589,18 @@ async def provision_nextdns_profile(body: CheckoutSessionRequest):
         return {"profile_id": row[0]}
 
     profile_id = create_nextdns_profile(checkout["email"], checkout["tier"], checkout["subscription_id"])
-    checked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     db.execute(
         """INSERT INTO customers (
                email, stripe_customer_id, stripe_subscription_id, active, tier,
-               nextdns_profile_id, nextdns_last_checked_at, last_dns_seen
-           ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+               nextdns_profile_id
+           ) VALUES (?, ?, ?, 1, ?, ?)
            ON CONFLICT(email) DO UPDATE SET
                stripe_customer_id = excluded.stripe_customer_id,
                stripe_subscription_id = excluded.stripe_subscription_id,
                active = 1,
                tier = excluded.tier,
-               nextdns_profile_id = COALESCE(customers.nextdns_profile_id, excluded.nextdns_profile_id),
-               nextdns_last_checked_at = COALESCE(customers.nextdns_last_checked_at, excluded.nextdns_last_checked_at),
-               last_dns_seen = COALESCE(customers.last_dns_seen, excluded.last_dns_seen)""",
-        (checkout["email"], checkout["customer_id"], checkout["subscription_id"], checkout["tier"], profile_id, checked_at, checked_at),
+               nextdns_profile_id = COALESCE(customers.nextdns_profile_id, excluded.nextdns_profile_id)""",
+        (checkout["email"], checkout["customer_id"], checkout["subscription_id"], checkout["tier"], profile_id),
     )
     db.commit()
     saved = db.execute(
@@ -719,383 +611,6 @@ async def provision_nextdns_profile(body: CheckoutSessionRequest):
     return {"profile_id": saved[0] if saved else profile_id}
 
 
-class SaveContactRequest(BaseModel):
-    checkout_session_id: str
-    user_phone: str = ""
-    accountability_phone: str = ""
-    user_sms_opted_in: bool = False
-
-# 2. Save a customer's phone number(s) for their tier.
-# Called from the Streamlit app after the "Save phone number(s)" step.
-# tier2 sends user_phone only; tier3 sends both. tier1 never calls this.
-# ---------------------------------------------------------------------------
-@app.post("/save-contact")
-async def save_contact(body: SaveContactRequest):
-    checkout = verify_paid_checkout(body.checkout_session_id, {"tier2", "tier3"})
-    tier = checkout["tier"]
-    user_phone = normalize_phone_e164(body.user_phone)
-    accountability_phone = normalize_phone_e164(body.accountability_phone)
-    if body.user_sms_opted_in and not user_phone:
-        raise HTTPException(status_code=400, detail="A phone number is required when opting in to SMS")
-    if tier == "tier3" and not accountability_phone:
-        raise HTTPException(status_code=400, detail="An accountability partner phone number is required")
-    if accountability_phone and ENABLE_SMS and not twilio_client:
-        raise HTTPException(status_code=503, detail="SMS invitations are not configured")
-
-    db = get_db()
-    previous = db.execute(
-        """SELECT accountability_phone, partner_opt_in_status,
-                  partner_opt_in_confirmed_at, accountability_sms_opted_in
-           FROM customers WHERE stripe_subscription_id = ?""",
-        (checkout["subscription_id"],),
-    ).fetchone()
-    if not previous:
-        db.close()
-        raise HTTPException(status_code=404, detail="Subscription record not found; retry after payment sync")
-    invitation_needed = bool(accountability_phone) and (
-        previous[0] != accountability_phone or previous[1] not in ("pending", "confirmed")
-    )
-    send_invitation = invitation_needed and ENABLE_SMS
-    db.execute(
-        """UPDATE customers
-           SET tier = ?, user_phone = ?, accountability_phone = ?, user_sms_opted_in = ?,
-               user_sms_consent_at = CASE WHEN ? = 1 THEN ? ELSE user_sms_consent_at END,
-               user_sms_consent_version = CASE WHEN ? = 1 THEN ? ELSE user_sms_consent_version END,
-               partner_opt_in_status = ?, partner_opt_in_confirmed_at = ?,
-               accountability_sms_opted_in = ?
-           WHERE stripe_subscription_id = ?""",
-        (tier, user_phone or None, accountability_phone or None,
-         int(body.user_sms_opted_in), int(body.user_sms_opted_in),
-         datetime.datetime.now(datetime.timezone.utc).isoformat(),
-         int(body.user_sms_opted_in), SMS_CONSENT_VERSION,
-         "pending" if accountability_phone and send_invitation else (
-             "not_invited" if accountability_phone and invitation_needed else (
-             previous[1] if accountability_phone else None
-             )
-         ),
-         previous[2] if accountability_phone and not invitation_needed else None,
-         previous[3] if accountability_phone and not invitation_needed else 0,
-         checkout["subscription_id"]),
-    )
-    db.commit()
-
-    if send_invitation:
-        try:
-            twilio_client.messages.create(
-                body=(
-                    "Filtersight: someone added this number as an accountability partner "
-                    "to receive filter bypass alerts. Reply YES to opt in, or STOP to decline. "
-                    "Msg & data rates may apply."
-                ),
-                from_=TWILIO_FROM_NUMBER,
-                to=accountability_phone,
-            )
-        except Exception as e:
-            db.close()
-            raise HTTPException(status_code=502, detail=f"Could not send the partner opt-in invitation: {e}")
-    db.close()
-    current_status = (
-        "pending" if send_invitation else
-        "not_invited" if invitation_needed else
-        (previous[1] if accountability_phone else None)
-    )
-    return {"status": "saved", "partner_opt_in_status": current_status, "sms_enabled": ENABLE_SMS}
-
-
-# ---------------------------------------------------------------------------
-# 2b. Twilio inbound SMS webhook.
-# Twilio sends form-encoded fields including From and Body.
-# SMS opt-in state is tracked separately for the user's phone and the
-# accountability partner's phone so STOP from one recipient does not
-# accidentally unsubscribe the other recipient or cancel the paid plan.
-# ---------------------------------------------------------------------------
-OPT_IN_KEYWORDS = {"START", "YES", "UNSTOP"}
-OPT_OUT_KEYWORDS = {
-    "CANCEL",
-    "QUIT",
-    "STOP",
-    "OPTOUT",
-    "UNSUBSCRIBE",
-    "STOPALL",
-    "REVOKE",
-    "END",
-}
-HELP_KEYWORDS = {"HELP", "INFO"}
-
-OPT_IN_MESSAGE = "Filtersight: You are now opted-in. For help, reply HELP. To opt-out, reply STOP."
-OPT_OUT_MESSAGE = "You have successfully been unsubscribed. You will not receive any more messages from this number. Reply START to resubscribe."
-HELP_MESSAGE = (
-    "Filtersight support: Reply STOP to unsubscribe. "
-    "For help, contact support@filtersight.com. "
-    "Msg & data rates may apply."
-)
-
-
-def twiml_response(message: str) -> Response:
-    response = MessagingResponse()
-    if message:
-        response.message(message)
-    return Response(content=str(response), media_type="application/xml")
-
-
-@app.post("/sms-webhook")
-async def sms_webhook(request: Request):
-    payload = await request.body()
-    form = parse_qs(payload.decode("utf-8"), keep_blank_values=True)
-    if not TWILIO_AUTH_TOKEN:
-        raise HTTPException(status_code=503, detail="Twilio webhook validation is not configured")
-    validator = RequestValidator(TWILIO_AUTH_TOKEN)
-    validator_params = {key: values[-1] for key, values in form.items() if values}
-    signature = request.headers.get("X-Twilio-Signature", "")
-    if not validator.validate(str(request.url), validator_params, signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-
-    from_number = form.get("From", [""])[0].strip()
-    message_body = form.get("Body", [""])[0].strip().upper()
-
-    if from_number:
-        try:
-            from_number = normalize_phone_e164(from_number)
-        except HTTPException:
-            return twiml_response("")
-
-    db = get_db()
-    try:
-        row = db.execute(
-            """
-            SELECT email, user_phone, accountability_phone,
-                   user_sms_opted_in, accountability_sms_opted_in,
-                   partner_opt_in_status
-            FROM customers
-            WHERE user_phone = ? OR accountability_phone = ?
-            LIMIT 1
-            """,
-            (from_number, from_number),
-        ).fetchone()
-
-        if message_body in OPT_OUT_KEYWORDS:
-            if row:
-                (
-                    email,
-                    user_phone,
-                    accountability_phone,
-                    _,
-                    _,
-                    partner_opt_in_status,
-                ) = row
-                email = email.strip().lower()
-
-                if from_number == accountability_phone:
-                    db.execute(
-                        """
-                        UPDATE customers
-                        SET accountability_sms_opted_in = 0,
-                            partner_opt_in_status = 'declined',
-                            partner_opt_in_confirmed_at = NULL
-                        WHERE email = ?
-                        """,
-                        (email,),
-                    )
-                elif from_number == user_phone:
-                    db.execute(
-                        "UPDATE customers SET user_sms_opted_in = 0 WHERE email = ?",
-                        (email,),
-                    )
-
-                db.commit()
-
-            return twiml_response(OPT_OUT_MESSAGE)
-
-        if message_body in OPT_IN_KEYWORDS:
-            if row:
-                (
-                    email,
-                    user_phone,
-                    accountability_phone,
-                    _,
-                    _,
-                    partner_opt_in_status,
-                ) = row
-                email = email.strip().lower()
-
-                if (
-                    from_number == accountability_phone
-                    and partner_opt_in_status == "pending"
-                ):
-                    db.execute(
-                        """
-                        UPDATE customers
-                        SET accountability_sms_opted_in = 1,
-                            partner_opt_in_status = 'confirmed',
-                            partner_opt_in_confirmed_at = ?
-                        WHERE email = ?
-                        """,
-                        (datetime.datetime.utcnow().isoformat(), email),
-                    )
-                    db.commit()
-
-                    return twiml_response(
-                        "Filtersight: You are now confirmed as an accountability "
-                        "partner and will receive alerts if a bypass attempt is detected. "
-                        "Reply STOP to opt out."
-                    )
-
-                elif from_number == user_phone:
-                    db.execute(
-                        "UPDATE customers SET user_sms_opted_in = 1 WHERE email = ?",
-                        (email,),
-                    )
-                    db.commit()
-
-            return twiml_response(OPT_IN_MESSAGE)
-
-        if message_body in HELP_KEYWORDS:
-            return twiml_response(HELP_MESSAGE)
-
-        return twiml_response("")
-
-    finally:
-        db.close()
-
-
-
-# ---------------------------------------------------------------------------
-# 3. Trigger a notification when a blocked-content attempt is detected.
-#
-# Tier-aware routing:
-#   tier1 — no texts at all (filter-only, fully private)
-#   tier2 — self-encouragement text to the user's own phone
-#   tier3 — self-text to the user, PLUS a separate notification to the
-#           accountability partner
-#
-# The protected NextDNS polling endpoint below supplies the real per-profile
-# signal used by this route. A scheduled caller must invoke it regularly.
-# ---------------------------------------------------------------------------
-@app.post("/notify-attempt")
-async def notify_attempt(request: Request, email: str):
-    require_admin_secret(request)
-    email = email.strip().lower()
-    db = get_db()
-    row = db.execute(
-        """SELECT tier, user_phone, accountability_phone,
-                  user_sms_opted_in, accountability_sms_opted_in,
-                  partner_opt_in_status
-           FROM customers WHERE email = ?""",
-        (email,),
-    ).fetchone()
-    db.close()
-
-    if not row:
-        return {"status": "no_customer_found"}
-
-    if row[0] == "tier1":
-        return {"status": "no_notifications_for_tier1"}
-    return {"status": "notified", "recipients": send_attempt_notifications(row)}
-
-
-# ---------------------------------------------------------------------------
-# 3b. Poll each active Tier 2/3 customer's isolated NextDNS profile.
-# Protect this scheduler endpoint with BACKFILL_ADMIN_SECRET.
-# ---------------------------------------------------------------------------
-@app.post("/poll-nextdns-and-notify")
-async def poll_nextdns_and_notify(request: Request):
-    require_admin_secret(request)
-    if not NEXTDNS_API_KEY:
-        raise HTTPException(status_code=503, detail="NextDNS is not configured")
-
-    db = get_db()
-    customers = db.execute(
-        """SELECT email, tier, nextdns_profile_id, nextdns_last_checked_at,
-                  nextdns_pagination_cursor, user_phone, accountability_phone,
-                  user_sms_opted_in, accountability_sms_opted_in, partner_opt_in_status
-           FROM customers
-           WHERE active = 1 AND tier IN ('tier2', 'tier3')
-             AND nextdns_profile_id IS NOT NULL"""
-    ).fetchall()
-    notifications_sent = 0
-    profiles_polled = 0
-    failures = []
-    headers = {"X-Api-Key": NEXTDNS_API_KEY}
-
-    for customer in customers:
-        (email, tier, profile_id, last_checked_at, saved_cursor, user_phone,
-         accountability_phone, user_opted_in, partner_opted_in, partner_status) = customer
-        params = {"limit": 1000, "sort": "asc"}
-        if saved_cursor:
-            params["cursor"] = saved_cursor
-        elif last_checked_at:
-            params["from"] = last_checked_at
-
-        next_cursor = None
-        latest_timestamp = last_checked_at
-        pages = 0
-        try:
-            while True:
-                if next_cursor:
-                    params["cursor"] = next_cursor
-                response = requests.get(
-                    f"https://api.nextdns.io/profiles/{profile_id}/logs",
-                    headers=headers,
-                    params=params,
-                    timeout=20,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                for entry in payload.get("data", []):
-                    entry_time = entry.get("timestamp")
-                    if not entry_time or (last_checked_at and entry_time <= last_checked_at):
-                        continue
-                    if latest_timestamp is None or entry_time > latest_timestamp:
-                        latest_timestamp = entry_time
-                    db.execute(
-                        "UPDATE customers SET last_dns_seen = ?, last_removed_alert_at = NULL WHERE email = ?",
-                        (entry_time, email),
-                    )
-                    is_porn_block = entry.get("status") == "blocked" and any(
-                        "porn" in (reason.get("id") or "").lower()
-                        for reason in entry.get("reasons", [])
-                    )
-                    if is_porn_block:
-                        recipients = send_attempt_notifications(
-                            (tier, user_phone, accountability_phone, user_opted_in,
-                             partner_opted_in, partner_status)
-                        )
-                        notifications_sent += len(recipients)
-
-                next_cursor = payload.get("meta", {}).get("pagination", {}).get("cursor")
-                pages += 1
-                if not next_cursor:
-                    break
-                if pages >= 100:
-                    break
-
-            db.execute(
-                """UPDATE customers
-                   SET nextdns_last_checked_at = COALESCE(?, nextdns_last_checked_at),
-                       nextdns_pagination_cursor = ?
-                   WHERE email = ?""",
-                (latest_timestamp if not next_cursor else None, next_cursor, email),
-            )
-            db.commit()
-            profiles_polled += 1
-        except (requests.RequestException, ValueError) as e:
-            db.rollback()
-            failures.append(profile_id)
-
-    db.close()
-    return {
-        "status": "polled",
-        "profiles_polled": profiles_polled,
-        "notifications_sent": notifications_sent,
-        "failed_profiles": failures,
-    }
-
-
-# ---------------------------------------------------------------------------
-# 4. In-the-moment support chat. The frontend calls this when someone opens
-# the chat after a bypass attempt (in addition to, or instead of, texting
-# their accountability contact — you decide the flow).
-# ---------------------------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
     history: list = Field(default_factory=list)
@@ -1104,7 +619,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat(body: ChatRequest):
-    verify_paid_checkout(body.checkout_session_id, {"tier2", "tier3"})
+    verify_paid_checkout(body.checkout_session_id, {"tier2"})
     if len(body.message) > 4000:
         raise HTTPException(status_code=413, detail="Message is too long")
     safe_history = [
@@ -1118,110 +633,11 @@ async def chat(body: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
-# 5. Removal detection via DNS "heartbeat" — the honest version.
-#
-# LIMITATION: iOS doesn't notify a third-party server when someone deletes a
-# configuration profile — that level of control needs real MDM enrollment,
-# which is a much bigger ask for a personal device and isn't the right fit
-# here. This heartbeat approach is the practical alternative: your DNS
-# provider (NextDNS, or your own AdGuard Home) logs every query. Call
-# record_dns_activity() from a scheduled job that polls those logs. Then
-# check_for_removed_profiles() looks for anyone who's gone quiet.
-#
-# Removal alerts go to whichever number(s) the tier actually has on file —
-# tier1 has none, so nothing fires for them.
-# ---------------------------------------------------------------------------
-
-REMOVAL_SILENCE_HOURS = 8  # tune based on real usage patterns once you have data
-REMOVAL_ALERT_COOLDOWN_HOURS = 24
-
-
-def parse_utc_timestamp(value: str):
-    if not value:
-        return None
-    parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return parsed.replace(tzinfo=datetime.timezone.utc) if parsed.tzinfo is None else parsed.astimezone(datetime.timezone.utc)
-
-@app.post("/record-dns-activity")
-async def record_dns_activity(request: Request, email: str):
-    """Call this from a scheduled job that polls your DNS provider's log API."""
-    require_admin_secret(request)
-    email = email.strip().lower()
-    db = get_db()
-    db.execute(
-        "UPDATE customers SET last_dns_seen = ? WHERE email = ?",
-        (datetime.datetime.utcnow().isoformat(), email),
-    )
-    db.commit()
-    db.close()
-    return {"status": "recorded"}
-
-
-@app.post("/check-for-removed-profiles")
-async def check_for_removed_profiles(request: Request):
-    """Run this on a schedule (e.g. every hour) via cron or a scheduled task."""
-    require_admin_secret(request)
-    if not ENABLE_TIER2_TIER3:
-        raise HTTPException(status_code=503, detail="Tier 2 and Tier 3 are not enabled yet")
-    if not ENABLE_SMS:
-        return {"notified": [], "sms_enabled": False}
-    if not twilio_client:
-        raise HTTPException(status_code=500, detail="Twilio not configured")
-
-    db = get_db()
-    now = datetime.datetime.now(datetime.timezone.utc)
-    rows = db.execute(
-        """SELECT email, tier, user_phone, accountability_phone,
-                  user_sms_opted_in, accountability_sms_opted_in,
-                  partner_opt_in_status, last_dns_seen, last_removed_alert_at
-           FROM customers WHERE active = 1 AND tier IN ('tier2', 'tier3')
-             AND last_dns_seen IS NOT NULL""",
-    ).fetchall()
-
-    notified = []
-    cutoff = now - datetime.timedelta(hours=REMOVAL_SILENCE_HOURS)
-    alert_cutoff = now - datetime.timedelta(hours=REMOVAL_ALERT_COOLDOWN_HOURS)
-    for (email, tier, user_phone, accountability_phone, user_sms_opted_in,
-         accountability_sms_opted_in, partner_opt_in_status, last_dns_seen,
-         last_removed_alert_at) in rows:
-        try:
-            last_seen = parse_utc_timestamp(last_dns_seen)
-            last_alert = parse_utc_timestamp(last_removed_alert_at)
-        except ValueError:
-            continue
-        if not last_seen or last_seen >= cutoff or (last_alert and last_alert >= alert_cutoff):
-            continue
-        body = (
-            f"Filtersight: it looks like the filter on {email}'s device may have been "
-            f"removed or disabled — no activity in the last {REMOVAL_SILENCE_HOURS} hours."
-        )
-        if ENABLE_SMS and user_phone and user_sms_opted_in:
-            twilio_client.messages.create(to=user_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
-        if (
-            ENABLE_SMS
-            and
-            tier == "tier3"
-            and partner_opt_in_status == "confirmed"
-            and accountability_phone
-            and accountability_sms_opted_in
-        ):
-            twilio_client.messages.create(to=accountability_phone, from_=TWILIO_FROM_NUMBER, body=f"{body} Reply STOP to opt out.")
-        db.execute(
-            "UPDATE customers SET last_removed_alert_at = ? WHERE email = ?",
-            (now.isoformat(), email),
-        )
-        notified.append(email)
-    db.commit()
-    db.close()
-    return {"notified": notified}
-
-
-# ---------------------------------------------------------------------------
 # 6. Cancellation — scheduled for the end of the current billing period.
 # ---------------------------------------------------------------------------
 @app.post("/request-cancellation")
 async def request_cancellation(checkout_session_id: str):
-    checkout = verify_paid_checkout(checkout_session_id, {"tier1", "tier2", "tier3"})
+    checkout = verify_paid_checkout(checkout_session_id, SUPPORTED_TIERS)
     subscription_id = checkout["subscription_id"]
     if not stripe.api_key:
         raise HTTPException(status_code=500, detail="Stripe not configured")
