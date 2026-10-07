@@ -21,7 +21,7 @@ TIERS = {
     "tier1": {
         "label": "Filter — $5/mo",
         "price_id": STRIPE_PRICE_TIER1,
-        "description": "Filter only. Fully private. No partner, no AI companion.",
+        "description": "Filter only. Private by design. No partner, no AI companion.",
         "has_chat": False,
     },
     "tier2": {
