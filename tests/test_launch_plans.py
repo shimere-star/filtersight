@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import tempfile
 import types
 import unittest
 from html.parser import HTMLParser
@@ -102,6 +104,153 @@ class LaunchPlanTests(unittest.TestCase):
 
         self.assertEqual(profile_id, "profile_123")
         self.assertFalse(post.call_args.kwargs["json"]["settings"]["logs"]["enabled"])
+
+    def test_reused_profile_disables_and_clears_existing_logs(self):
+        """Catches reusing an older profile while its query logging stays enabled."""
+        profile_name = f"Filtersight {hashlib.sha256(b'sub_123').hexdigest()[:12]}"
+        existing = Mock(ok=True)
+        existing.json.return_value = {
+            "data": [{"id": "profile_existing", "name": profile_name}]
+        }
+        existing.raise_for_status.return_value = None
+        updated = Mock(ok=True)
+        updated.raise_for_status.return_value = None
+        cleared = Mock(ok=True)
+        cleared.raise_for_status.return_value = None
+
+        with (
+            patch.object(webhook_server, "NEXTDNS_API_KEY", "key"),
+            patch.object(webhook_server, "NEXTDNS_PROFILE_ID", "template"),
+            patch.object(webhook_server.requests, "get", return_value=existing),
+            patch.object(webhook_server.requests, "patch", return_value=updated) as patch_request,
+            patch.object(webhook_server.requests, "delete", return_value=cleared) as delete_request,
+        ):
+            profile_id = webhook_server.create_nextdns_profile(
+                "member@example.com", "tier2", "sub_123"
+            )
+
+        self.assertEqual(profile_id, "profile_existing")
+        patch_request.assert_called_once_with(
+            "https://api.nextdns.io/profiles/profile_existing/settings/logs",
+            headers={"X-Api-Key": "key", "Content-Type": "application/json"},
+            json={"enabled": False},
+            timeout=30,
+        )
+        delete_request.assert_called_once_with(
+            "https://api.nextdns.io/profiles/profile_existing/logs",
+            headers={"X-Api-Key": "key"},
+            timeout=30,
+        )
+
+    def test_reused_profile_rejects_nextdns_200_error_response(self):
+        """Catches treating a NextDNS HTTP 200 error body as privacy success."""
+        profile_name = f"Filtersight {hashlib.sha256(b'sub_123').hexdigest()[:12]}"
+        existing = Mock(ok=True)
+        existing.json.return_value = {
+            "data": [{"id": "profile_existing", "name": profile_name}]
+        }
+        existing.raise_for_status.return_value = None
+        rejected_update = Mock(ok=True)
+        rejected_update.json.return_value = {
+            "errors": [{"code": "invalid", "detail": "logs update rejected"}]
+        }
+        rejected_update.raise_for_status.return_value = None
+
+        with (
+            patch.object(webhook_server, "NEXTDNS_API_KEY", "key"),
+            patch.object(webhook_server, "NEXTDNS_PROFILE_ID", "template"),
+            patch.object(webhook_server.requests, "get", return_value=existing),
+            patch.object(webhook_server.requests, "patch", return_value=rejected_update),
+            patch.object(webhook_server.requests, "delete") as delete_request,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                webhook_server.create_nextdns_profile(
+                    "member@example.com", "tier2", "sub_123"
+                )
+
+        self.assertEqual(raised.exception.status_code, 502)
+        delete_request.assert_not_called()
+
+    def test_reused_profile_rejects_log_clear_200_error_response(self):
+        """Catches treating a rejected stored-log deletion as privacy success."""
+        profile_name = f"Filtersight {hashlib.sha256(b'sub_123').hexdigest()[:12]}"
+        existing = Mock(ok=True)
+        existing.json.return_value = {
+            "data": [{"id": "profile_existing", "name": profile_name}]
+        }
+        existing.raise_for_status.return_value = None
+        updated = Mock(ok=True)
+        updated.json.return_value = {"data": {}}
+        updated.raise_for_status.return_value = None
+        rejected_clear = Mock(ok=True)
+        rejected_clear.json.return_value = {
+            "errors": [{"code": "invalid", "detail": "log deletion rejected"}]
+        }
+        rejected_clear.raise_for_status.return_value = None
+
+        with (
+            patch.object(webhook_server, "NEXTDNS_API_KEY", "key"),
+            patch.object(webhook_server, "NEXTDNS_PROFILE_ID", "template"),
+            patch.object(webhook_server.requests, "get", return_value=existing),
+            patch.object(webhook_server.requests, "patch", return_value=updated),
+            patch.object(webhook_server.requests, "delete", return_value=rejected_clear),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                webhook_server.create_nextdns_profile(
+                    "member@example.com", "tier2", "sub_123"
+                )
+
+        self.assertEqual(raised.exception.status_code, 502)
+
+    def test_database_migration_purges_legacy_messaging_data(self):
+        """Catches retaining phone numbers and consent state after SMS removal."""
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = str(Path(directory) / "customers.db")
+            with patch.object(webhook_server, "DB_PATH", db_path):
+                db = webhook_server.get_db()
+                for column in (
+                    "user_phone TEXT",
+                    "accountability_phone TEXT",
+                    "user_sms_opted_in INTEGER DEFAULT 0",
+                    "user_sms_consent_at TEXT",
+                    "user_sms_consent_version TEXT",
+                    "accountability_sms_opted_in INTEGER DEFAULT 0",
+                    "partner_opt_in_status TEXT",
+                    "partner_opt_in_confirmed_at TEXT",
+                ):
+                    db.execute(f"ALTER TABLE customers ADD COLUMN {column}")
+                db.execute(
+                    """INSERT INTO customers (
+                           email, user_phone, accountability_phone,
+                           user_sms_opted_in, user_sms_consent_at,
+                           user_sms_consent_version, accountability_sms_opted_in,
+                           partner_opt_in_status, partner_opt_in_confirmed_at
+                       ) VALUES (?, ?, ?, 1, ?, ?, 1, ?, ?)""",
+                    (
+                        "member@example.com",
+                        "+15551234567",
+                        "+15557654321",
+                        "2026-09-25T00:00:00Z",
+                        "2026-09-25-v1",
+                        "confirmed",
+                        "2026-09-25T00:01:00Z",
+                    ),
+                )
+                db.commit()
+                db.close()
+
+                migrated = webhook_server.get_db()
+                row = migrated.execute(
+                    """SELECT user_phone, accountability_phone,
+                              user_sms_opted_in, user_sms_consent_at,
+                              user_sms_consent_version, accountability_sms_opted_in,
+                              partner_opt_in_status, partner_opt_in_confirmed_at
+                       FROM customers WHERE email = ?""",
+                    ("member@example.com",),
+                ).fetchone()
+                migrated.close()
+
+        self.assertEqual(row, (None, None, 0, None, None, 0, None, None))
 
     def test_member_companion_is_only_for_tier2(self):
         """Catches granting retired Tier 3 the launch companion entitlement."""

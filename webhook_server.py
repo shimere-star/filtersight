@@ -81,6 +81,26 @@ def get_db():
         conn.execute("ALTER TABLE customers ADD COLUMN nextdns_profile_id TEXT")
     if "removal_fee_paid" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN removal_fee_paid INTEGER DEFAULT 0")
+
+    legacy_text_columns = {
+        "user_phone",
+        "accountability_phone",
+        "user_sms_consent_at",
+        "user_sms_consent_version",
+        "partner_opt_in_status",
+        "partner_opt_in_confirmed_at",
+    }
+    legacy_flag_columns = {
+        "user_sms_opted_in",
+        "accountability_sms_opted_in",
+    }
+    assignments = [
+        f"{column} = NULL" for column in sorted(existing_cols & legacy_text_columns)
+    ] + [
+        f"{column} = 0" for column in sorted(existing_cols & legacy_flag_columns)
+    ]
+    if assignments:
+        conn.execute(f"UPDATE customers SET {', '.join(assignments)}")
     conn.commit()
     return conn
 
@@ -457,7 +477,41 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
                 None,
             )
             if existing and existing.get("id"):
-                return existing["id"]
+                profile_id = existing["id"]
+                request_stage = "disable_existing_profile_logs"
+                updated = requests.patch(
+                    f"https://api.nextdns.io/profiles/{profile_id}/settings/logs",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"enabled": False},
+                    timeout=30,
+                )
+                updated.raise_for_status()
+                try:
+                    update_payload = updated.json()
+                except ValueError:
+                    update_payload = {}
+                if isinstance(update_payload, dict) and update_payload.get("errors"):
+                    raise HTTPException(
+                        status_code=502,
+                        detail="NextDNS rejected the privacy settings update",
+                    )
+                request_stage = "clear_existing_profile_logs"
+                cleared = requests.delete(
+                    f"https://api.nextdns.io/profiles/{profile_id}/logs",
+                    headers=headers,
+                    timeout=30,
+                )
+                cleared.raise_for_status()
+                try:
+                    clear_payload = cleared.json()
+                except ValueError:
+                    clear_payload = {}
+                if isinstance(clear_payload, dict) and clear_payload.get("errors"):
+                    raise HTTPException(
+                        status_code=502,
+                        detail="NextDNS rejected the stored-log deletion",
+                    )
+                return profile_id
 
         # Keep this payload deliberately small. Neither launch plan needs
         # browsing activity because members open the companion directly.
