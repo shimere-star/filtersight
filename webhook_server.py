@@ -28,7 +28,8 @@ logging.basicConfig(level=logging.INFO)
 # --- Config (set these as real environment variables, never hardcode) -----
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")  # from Stripe dashboard
-SUPPORTED_TIERS = {"tier1", "tier2"}
+CURRENT_PLAN = "filtersight"
+SUPPORTED_PLANS = {CURRENT_PLAN}
 
 # --- NextDNS config (for real-time bypass detection) --------------------
 NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
@@ -49,7 +50,7 @@ def get_db():
             stripe_customer_id TEXT,
             stripe_subscription_id TEXT,
             active INTEGER DEFAULT 1,
-            tier TEXT DEFAULT 'tier1',
+            plan TEXT,
             nextdns_profile_id TEXT,
             removal_fee_paid INTEGER DEFAULT 0
         )
@@ -73,8 +74,8 @@ def get_db():
     """)
     # Lightweight migration for DBs created before this update.
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(customers)")}
-    if "tier" not in existing_cols:
-        conn.execute("ALTER TABLE customers ADD COLUMN tier TEXT DEFAULT 'tier1'")
+    if "plan" not in existing_cols:
+        conn.execute("ALTER TABLE customers ADD COLUMN plan TEXT")
     if "stripe_subscription_id" not in existing_cols:
         conn.execute("ALTER TABLE customers ADD COLUMN stripe_subscription_id TEXT")
     if "nextdns_profile_id" not in existing_cols:
@@ -113,7 +114,7 @@ def require_admin_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
+def verify_paid_checkout(checkout_session_id: str, allowed_plans=None):
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="Stripe is not configured")
     if not checkout_session_id:
@@ -136,16 +137,16 @@ def verify_paid_checkout(checkout_session_id: str, allowed_tiers=None):
         raise HTTPException(status_code=402, detail="Subscription is not active")
 
     metadata = session.metadata.to_dict() if session.metadata else {}
-    tier = metadata.get("tier", "tier1")
-    if tier not in SUPPORTED_TIERS:
+    plan = metadata.get("plan")
+    if plan not in SUPPORTED_PLANS:
         raise HTTPException(status_code=403, detail="This plan is no longer available")
-    if allowed_tiers and tier not in allowed_tiers:
+    if allowed_plans and plan not in allowed_plans:
         raise HTTPException(status_code=403, detail="This plan does not include this feature")
     details = session.customer_details
     email = (details.email if details and details.email else session.customer_email or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Checkout has no customer email")
-    return {"email": email, "tier": tier, "customer_id": session.customer, "subscription_id": subscription_id}
+    return {"email": email, "plan": plan, "customer_id": session.customer, "subscription_id": subscription_id}
 
 
 def hash_token(token: str) -> str:
@@ -322,14 +323,14 @@ async def member_verify_link(body: MemberMagicLinkRequest):
         raise HTTPException(status_code=401, detail="Invalid or expired sign-in link")
 
     account = db.execute(
-        """SELECT stripe_subscription_id, tier FROM customers
+        """SELECT stripe_subscription_id, plan FROM customers
            WHERE email = ? AND active = 1 AND stripe_subscription_id IS NOT NULL""",
         (email,),
     ).fetchone()
     if not account:
         db.close()
         raise HTTPException(status_code=401, detail="Subscription is not active")
-    subscription_id, tier = account
+    subscription_id, plan = account
     try:
         subscription = stripe.Subscription.retrieve(subscription_id)
     except stripe.error.StripeError:
@@ -354,7 +355,7 @@ async def member_verify_link(body: MemberMagicLinkRequest):
     )
     db.commit()
     db.close()
-    return {"access_token": access_token, "expires_at": access_expires.isoformat(), "tier": tier}
+    return {"access_token": access_token, "expires_at": access_expires.isoformat(), "plan": plan}
 
 
 def require_member_session(request: Request):
@@ -364,7 +365,7 @@ def require_member_session(request: Request):
         raise HTTPException(status_code=401, detail="Sign in to continue")
     db = get_db()
     row = db.execute(
-        """SELECT s.email, s.stripe_subscription_id, s.expires_at, c.tier
+        """SELECT s.email, s.stripe_subscription_id, s.expires_at, c.plan
            FROM member_sessions s JOIN customers c
              ON c.stripe_subscription_id = s.stripe_subscription_id
            WHERE s.token_hash = ? AND c.active = 1""",
@@ -373,7 +374,9 @@ def require_member_session(request: Request):
     db.close()
     if not row:
         raise HTTPException(status_code=401, detail="Sign in to continue")
-    email, subscription_id, expires_at, tier = row
+    email, subscription_id, expires_at, plan = row
+    if plan != CURRENT_PLAN:
+        raise HTTPException(status_code=403, detail="This plan is no longer available")
     try:
         if parse_utc_timestamp(expires_at) <= datetime.datetime.now(datetime.timezone.utc):
             raise HTTPException(status_code=401, detail="Your sign-in expired. Request a new link.")
@@ -382,7 +385,7 @@ def require_member_session(request: Request):
         raise HTTPException(status_code=503, detail="Could not verify your subscription right now")
     if subscription.status not in ("active", "trialing"):
         raise HTTPException(status_code=401, detail="Subscription is not active")
-    return {"email": email, "subscription_id": subscription_id, "tier": tier, "subscription": subscription}
+    return {"email": email, "subscription_id": subscription_id, "plan": plan, "subscription": subscription}
 
 
 @app.get("/member/profile")
@@ -393,8 +396,8 @@ async def member_profile(request: Request):
     current_period_end = item_list[0].current_period_end if item_list else None
     return {
         "email": member["email"],
-        "tier": member["tier"],
-        "has_chat": member["tier"] == "tier2",
+        "plan": member["plan"],
+        "has_chat": True,
         "cancel_at_period_end": bool(subscription.cancel_at_period_end),
         "current_period_end": current_period_end,
     }
@@ -408,8 +411,6 @@ class MemberChatRequest(BaseModel):
 @app.post("/member/chat")
 async def member_chat(request: Request, body: MemberChatRequest):
     member = require_member_session(request)
-    if member["tier"] != "tier2":
-        raise HTTPException(status_code=403, detail="The companion is available on Tier 2")
     if len(body.message) > 4000:
         raise HTTPException(status_code=413, detail="Message is too long")
     safe_history = [
@@ -450,7 +451,7 @@ async def member_logout(request: Request):
     return {"status": "signed_out"}
 
 
-def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str) -> str:
+def create_nextdns_profile(customer_email: str, plan: str, subscription_id: str) -> str:
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=503, detail="NextDNS profile template is not configured")
     headers = {"X-Api-Key": NEXTDNS_API_KEY}
@@ -513,7 +514,7 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
                     )
                 return profile_id
 
-        # Keep this payload deliberately small. Neither launch plan needs
+        # Keep this payload deliberately small. The current plan does not need
         # browsing activity because members open the companion directly.
         profile = {
             "name": profile_name,
@@ -570,7 +571,7 @@ def create_nextdns_profile(customer_email: str, tier: str, subscription_id: str)
 
 # ---------------------------------------------------------------------------
 # 1. Stripe webhook — the source of truth for who's actually paid, and which
-# tier they paid for (read from the checkout session metadata set in app.py).
+# plan they paid for (read from the checkout session metadata set in app.py).
 # In your Stripe Dashboard, add an endpoint pointing to:
 #   https://yourdomain.com/stripe-webhook
 # and subscribe to: checkout.session.completed, customer.subscription.deleted
@@ -596,23 +597,23 @@ async def stripe_webhook(request: Request):
         customer_id = session.customer
         subscription_id = session.subscription
         metadata = session.metadata
-        tier = metadata.to_dict().get("tier", "tier1") if metadata else "tier1"
-        if email:
+        plan = metadata.to_dict().get("plan") if metadata else None
+        if email and plan in SUPPORTED_PLANS:
             db.execute(
                 """INSERT INTO customers (
                        email,
                        stripe_customer_id,
                        stripe_subscription_id,
                        active,
-                       tier
+                       plan
                    )
                    VALUES (?, ?, ?, 1, ?)
                    ON CONFLICT(email) DO UPDATE SET
                      stripe_customer_id = excluded.stripe_customer_id,
                      stripe_subscription_id = excluded.stripe_subscription_id,
                      active = 1,
-                     tier = excluded.tier""",
-                (email, customer_id, subscription_id, tier),
+                     plan = excluded.plan""",
+                (email, customer_id, subscription_id, plan),
             )
             db.commit()
 
@@ -632,7 +633,7 @@ class CheckoutSessionRequest(BaseModel):
 @app.post("/provision-nextdns-profile")
 async def provision_nextdns_profile(body: CheckoutSessionRequest):
     """Create or reuse the customer's isolated NextDNS profile after verified payment."""
-    checkout = verify_paid_checkout(body.checkout_session_id, SUPPORTED_TIERS)
+    checkout = verify_paid_checkout(body.checkout_session_id, SUPPORTED_PLANS)
     db = get_db()
     row = db.execute(
         "SELECT nextdns_profile_id FROM customers WHERE stripe_subscription_id = ?",
@@ -642,19 +643,19 @@ async def provision_nextdns_profile(body: CheckoutSessionRequest):
         db.close()
         return {"profile_id": row[0]}
 
-    profile_id = create_nextdns_profile(checkout["email"], checkout["tier"], checkout["subscription_id"])
+    profile_id = create_nextdns_profile(checkout["email"], checkout["plan"], checkout["subscription_id"])
     db.execute(
         """INSERT INTO customers (
-               email, stripe_customer_id, stripe_subscription_id, active, tier,
+               email, stripe_customer_id, stripe_subscription_id, active, plan,
                nextdns_profile_id
            ) VALUES (?, ?, ?, 1, ?, ?)
            ON CONFLICT(email) DO UPDATE SET
                stripe_customer_id = excluded.stripe_customer_id,
                stripe_subscription_id = excluded.stripe_subscription_id,
                active = 1,
-               tier = excluded.tier,
+               plan = excluded.plan,
                nextdns_profile_id = COALESCE(customers.nextdns_profile_id, excluded.nextdns_profile_id)""",
-        (checkout["email"], checkout["customer_id"], checkout["subscription_id"], checkout["tier"], profile_id),
+        (checkout["email"], checkout["customer_id"], checkout["subscription_id"], checkout["plan"], profile_id),
     )
     db.commit()
     saved = db.execute(
@@ -673,7 +674,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat(body: ChatRequest):
-    verify_paid_checkout(body.checkout_session_id, {"tier2"})
+    verify_paid_checkout(body.checkout_session_id, SUPPORTED_PLANS)
     if len(body.message) > 4000:
         raise HTTPException(status_code=413, detail="Message is too long")
     safe_history = [
@@ -691,7 +692,7 @@ async def chat(body: ChatRequest):
 # ---------------------------------------------------------------------------
 @app.post("/request-cancellation")
 async def request_cancellation(checkout_session_id: str):
-    checkout = verify_paid_checkout(checkout_session_id, SUPPORTED_TIERS)
+    checkout = verify_paid_checkout(checkout_session_id, SUPPORTED_PLANS)
     subscription_id = checkout["subscription_id"]
     if not stripe.api_key:
         raise HTTPException(status_code=500, detail="Stripe not configured")
