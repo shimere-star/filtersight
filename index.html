@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Filtersight — Stay Accountable</title>
+<title>FilterSight — Stay Accountable</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -72,9 +72,7 @@
   .step .label{font-family:'Fraunces', serif; font-size:1.2rem; margin-bottom:10px;}
   .step p{color:#4A5561; font-size:0.95rem;}
 
-  .pricing{
-    display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:24px; padding-top:2vh;
-  }
+  .pricing{max-width:620px; margin:0 auto; padding-top:2vh;}
   .plan{
     border:1px solid var(--line); padding:32px; background:#fff;
   }
@@ -95,6 +93,9 @@
   footer a{color:#8A9298; margin-left:20px; text-decoration:none;}
 
   @media (max-width:640px){
+    header{align-items:flex-start; gap:18px; padding:20px 16px;}
+    nav{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px 16px;}
+    nav a{margin-left:0;}
     .how{grid-template-columns:1fr;}
     .pricing{grid-template-columns:1fr;}
     footer{flex-direction:column; gap:14px; text-align:center;}
@@ -105,7 +106,7 @@
 <body>
 
 <header>
-  <div class="logo">Filtersight</div>
+  <div class="logo">FilterSight</div>
   <nav>
     <a href="founder-story.html">Our Story</a>
     <a href="#how">How it works</a>
@@ -118,7 +119,7 @@
 <div class="hero">
   <div class="eyebrow">A quieter kind of accountability</div>
   <h1 class="display">Fight for a better you.</h1>
-  <p class="sub">Filtersight uses private DNS filtering to block known adult domains across your iPhone, with an optional AI companion when you want support.</p>
+  <p class="sub">Private DNS filtering that blocks adult sites across your devices, plus a calm AI companion whenever you need support.</p>
   <a href="#pricing" class="cta">Get started</a>
   <div class="cta-note">Takes five minutes to set up. Cancel anytime.</div>
 </div>
@@ -139,46 +140,36 @@
     </div>
     <div class="step">
       <div class="label">03 — Get support</div>
-      <p>Choose Filter + Companion for a calm, focused place to talk through urges whenever you need it.</p>
+      <p>Open your dashboard for a structured check-in, a short reset, or a calm conversation whenever you need support.</p>
     </div>
   </div>
 </section>
 
 <section id="pricing">
   <div class="eyebrow">Pricing</div>
-  <h2 class="display" style="font-size:1.8rem; margin-top:10px; margin-bottom:10px;">Start simple. Add more when you're ready.</h2>
+  <h2 class="display" style="font-size:1.8rem; margin-top:10px; margin-bottom:10px;">One private plan. Everything included.</h2>
   <div class="pricing">
-    <div class="plan">
-      <h3>Filter</h3>
-      <div class="price">$5<span>/mo</span></div>
-      <ul>
-        <li>DNS-level filtering for your device</li>
-        <li>Blocks known adult websites and domains</li>
-        <li>Does not filter content inside general-purpose apps or websites</li>
-        <li>Private by design — no partner, no AI</li>
-        <li>Cancel anytime</li>
-      </ul>
-      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Filter</a>
-    </div>
     <div class="plan featured">
-      <h3>Filter + Companion</h3>
+      <h3>FilterSight</h3>
       <div class="price">$10<span>/mo</span></div>
       <ul>
-        <li>Everything in Filter</li>
-        <li>Narrow-purpose AI chat companion</li>
-        <li>Available anytime from your member dashboard</li>
-        <li>DNS query logging remains disabled</li>
+        <li>Blocks known adult websites and domains at the DNS level, before they load.</li>
+        <li>One profile covers your devices — install once, no app to manage.</li>
+        <li>A narrow-purpose AI companion in your dashboard for moments when you want support.</li>
+        <li>DNS query logging stays disabled — your browsing activity isn't recorded.</li>
+        <li>No partner monitors your browsing activity.</li>
       </ul>
-      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Choose Filter + Companion</a>
+      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Start FilterSight</a>
     </div>
   </div>
   <p style="font-size:0.82rem; color:#8A9298; margin-top:14px; text-align:center;">
-    Filtersight works at the DNS/domain level. It can block known adult domains, but it cannot distinguish adult content from other content when both are served from the same general-purpose website or app. DNS query logging is disabled for both plans.
+    Your DNS queries aren't logged, and companion conversations are processed only to generate replies. We don't sell your information.
+    $10/month. Cancel anytime from your member dashboard. Your plan stays active until the end of the billing period, and there's no cancellation fee.
   </p>
 </section>
 
 <footer>
-  <div>© 2026 Filtersight</div>
+  <div>© 2026 FilterSight</div>
   <div>
     <a href="mailto:support@filtersight.com">support@filtersight.com</a>
     <a href="terms.html">Terms</a>
