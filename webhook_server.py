@@ -15,12 +15,29 @@ import logging
 import time
 import stripe
 import requests
+from contextlib import asynccontextmanager
 from urllib.parse import urlencode
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
 from chatbot import get_chat_response
+import journal_router
+import journal_service
+import journal_store
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Private-journal retention: sweep once at startup (this catches anything that
+    # came due while the service was down), then on a timer. All schedule state
+    # lives in SQLite, so a restart loses nothing. See JOURNAL_BACKEND.md.
+    cleanup_task = await journal_service.start_cleanup(lambda: get_db())
+    try:
+        yield
+    finally:
+        await journal_service.stop_cleanup(cleanup_task)
+
+
+app = FastAPI(lifespan=lifespan)
 logger = logging.getLogger(__name__)
 # Railway captures stdout/stderr: make sure INFO logs are actually emitted.
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +119,8 @@ def get_db():
     ]
     if assignments:
         conn.execute(f"UPDATE customers SET {', '.join(assignments)}")
+    # Private journal tables: additive only, never alters the tables above.
+    journal_store.ensure_schema(conn)
     conn.commit()
     return conn
 
@@ -451,6 +470,35 @@ async def member_logout(request: Request):
     return {"status": "signed_out"}
 
 
+# ---------------------------------------------------------------------------
+# Private goal / journal / coping plan (see JOURNAL_BACKEND.md).
+# Every route lives under /member/journal and is authenticated by the same
+# member-session check as the other /member routes. Journal content is
+# encrypted at rest and is never sent to an AI provider by the backend.
+# ---------------------------------------------------------------------------
+journal = journal_service.JournalService(lambda: get_db())
+
+
+def _journal_member(request: Request):
+    return require_member_session(request)
+
+
+app.include_router(journal_router.build_router(journal, _journal_member))
+
+
+def _journal_retention_hook(action, *args):
+    """Run journal retention bookkeeping inside the caller's transaction.
+
+    It must never be able to break billing or provisioning: failures are logged
+    by class name only, and the periodic cleanup sweep reconciles anything missed.
+    """
+    try:
+        return action(*args)
+    except Exception as e:
+        logger.error("journal retention hook failed: %s", type(e).__name__)
+        return None
+
+
 def create_nextdns_profile(customer_email: str, plan: str, subscription_id: str) -> str:
     if not NEXTDNS_API_KEY or not NEXTDNS_PROFILE_ID:
         raise HTTPException(status_code=503, detail="NextDNS profile template is not configured")
@@ -615,11 +663,22 @@ async def stripe_webhook(request: Request):
                      plan = excluded.plan""",
                 (email, customer_id, subscription_id, plan),
             )
+            # Returning member: keep journal data whose deletion is still pending.
+            _journal_retention_hook(journal_store.clear_pending_deletion, db, email)
             db.commit()
 
     elif event["type"] == "customer.subscription.deleted":
-        customer_id = event["data"]["object"].customer
+        ended_subscription = event["data"]["object"]
+        customer_id = ended_subscription.customer
         db.execute("UPDATE customers SET active = 0 WHERE stripe_customer_id = ?", (customer_id,))
+        # Journal data is deleted no later than 30 days after the subscription ends.
+        _journal_retention_hook(
+            journal_store.schedule_deletion_for_customer,
+            db,
+            customer_id,
+            getattr(ended_subscription, "id", None),
+            journal_store.timestamp_to_datetime(getattr(ended_subscription, "ended_at", None)),
+        )
         db.commit()
 
     db.close()
@@ -657,6 +716,9 @@ async def provision_nextdns_profile(body: CheckoutSessionRequest):
                nextdns_profile_id = COALESCE(customers.nextdns_profile_id, excluded.nextdns_profile_id)""",
         (checkout["email"], checkout["customer_id"], checkout["subscription_id"], checkout["plan"], profile_id),
     )
+    # Returning member (this path also marks the account active): keep journal data
+    # whose deletion is still pending; one that is already due is deleted now.
+    _journal_retention_hook(journal_store.clear_pending_deletion, db, checkout["email"])
     db.commit()
     saved = db.execute(
         "SELECT nextdns_profile_id FROM customers WHERE stripe_subscription_id = ?",

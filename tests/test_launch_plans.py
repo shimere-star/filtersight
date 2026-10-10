@@ -17,6 +17,23 @@ import webhook_server
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def app_route_paths(app):
+    """Return paths from normal and FastAPI 0.143+ included-router entries."""
+    paths = set()
+
+    def visit(routes):
+        for route in routes:
+            path = getattr(route, "path", None)
+            if path is not None:
+                paths.add(path)
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                visit(included.routes)
+
+    visit(app.routes)
+    return paths
+
+
 class TextCollector(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -131,9 +148,16 @@ class LaunchPlanTests(unittest.TestCase):
                 }
                 db.close()
 
+        # The private journal adds its own tables (see journal_store.py). The point of
+        # this test is unchanged: check-ins and exercises must not persist anything,
+        # so no table may exist beyond the original three plus the journal's own.
         self.assertEqual(
             tables,
-            {"customers", "member_magic_links", "member_sessions"},
+            {"customers", "member_magic_links", "member_sessions"}
+            | set(webhook_server.journal_store.JOURNAL_TABLES),
+        )
+        self.assertFalse(
+            [name for name in tables if "checkin" in name or "exercise" in name]
         )
 
     def test_signup_offers_exactly_one_filtersight_plan(self):
@@ -227,7 +251,7 @@ class LaunchPlanTests(unittest.TestCase):
 
     def test_backend_exposes_no_messaging_routes(self):
         """Catches leaving a callable messaging endpoint after removing Twilio."""
-        paths = {route.path for route in webhook_server.app.routes}
+        paths = app_route_paths(webhook_server.app)
 
         self.assertNotIn("/sms-webhook", paths)
         self.assertNotIn("/save-contact", paths)
