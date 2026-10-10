@@ -190,6 +190,88 @@ class AuthenticationTests(JournalHttpTestCase):
             self.assertIn(existing, paths)
 
 
+class SupportDeletionTests(JournalHttpTestCase):
+    endpoint = "/admin/journal/delete"
+
+    def test_support_deletion_requires_its_own_configured_secret(self):
+        with patch.object(webhook_server, "JOURNAL_ADMIN_SECRET", None):
+            response = self.client.post(
+                self.endpoint,
+                json={"email": "alice@example.com"},
+                headers={"X-Journal-Admin-Secret": SECRET},
+            )
+        self.assertEqual(response.status_code, 503)
+
+        with patch.object(webhook_server, "JOURNAL_ADMIN_SECRET", SECRET):
+            response = self.client.post(
+                self.endpoint,
+                json={"email": "alice@example.com"},
+                headers={"X-Journal-Admin-Secret": "wrong"},
+            )
+        self.assertEqual(response.status_code, 401)
+
+    def test_support_can_delete_a_cancelled_members_journal_without_the_encryption_key(self):
+        self.client.patch(
+            "/member/journal/profile",
+            json={"goal": "Alice private goal", "coping_actions": ["Take a walk"]},
+            headers=self.alice,
+        )
+        self.post_entry(self.alice, note="Alice private note")
+        self.post_entry(self.bob, note="Bob private note")
+
+        with patch.object(webhook_server, "JOURNAL_ADMIN_SECRET", SECRET), patch.dict(
+            os.environ, {}, clear=False
+        ):
+            os.environ.pop(journal_store.KEY_ENV, None)
+            first = self.client.post(
+                self.endpoint,
+                json={"email": " Alice@Example.com "},
+                headers={"X-Journal-Admin-Secret": SECRET},
+            )
+            repeated = self.client.post(
+                self.endpoint,
+                json={"email": "alice@example.com"},
+                headers={"X-Journal-Admin-Secret": SECRET},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json(), {"status": "processed"})
+        self.assertEqual(repeated.json(), first.json())
+        for table in ("journal_profiles", "journal_entries", "journal_write_log"):
+            self.assertEqual(
+                self.sql(f"SELECT COUNT(*) FROM {table} WHERE member_email = ?", ("alice@example.com",))[0][0],
+                0,
+            )
+        self.assertEqual(
+            self.sql(
+                "SELECT COUNT(*) FROM journal_entries WHERE member_email = ?",
+                ("bob@example.com",),
+            )[0][0],
+            1,
+        )
+        self.assertEqual(
+            self.sql("SELECT COUNT(*) FROM customers WHERE email = ?", ("alice@example.com",))[0][0],
+            1,
+        )
+        self.assertIsNotNone(
+            self.sql(
+                "SELECT purged_at FROM journal_retention WHERE member_email = ?",
+                ("alice@example.com",),
+            )[0][0]
+        )
+
+    def test_support_deletion_rejects_invalid_email_without_echoing_it(self):
+        sentinel = "not-an-email-private-sentinel"
+        with patch.object(webhook_server, "JOURNAL_ADMIN_SECRET", SECRET):
+            response = self.client.post(
+                self.endpoint,
+                json={"email": sentinel},
+                headers={"X-Journal-Admin-Secret": SECRET},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn(sentinel, response.text)
+
+
 # ===========================================================================
 # Behaviour through HTTP
 # ===========================================================================

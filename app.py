@@ -2,6 +2,7 @@ import streamlit as st
 import stripe
 import uuid
 import os
+import json
 import requests
 import traceback
 import time
@@ -26,14 +27,43 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")    # where 
 PLAN_ID = "filtersight"
 STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
 
+JOURNAL_CATEGORIES = {
+    "craving_or_temptation": "Craving or temptation",
+    "stress_or_anxiety": "Stress or anxiety",
+    "boredom": "Boredom",
+    "loneliness": "Loneliness",
+    "accidental_block": "Accidental block",
+    "legitimate_access_need": "Legitimate access need",
+    "something_else": "Something else",
+}
+JOURNAL_ACTIONS = {
+    "breathing_exercise": "Breathing exercise",
+    "grounding_exercise": "Grounding exercise",
+    "distraction": "Distraction",
+    "five_minute_cooldown": "Five-minute cooldown",
+    "ten_minute_cooldown": "Ten-minute cooldown",
+    "talked_it_through": "Talked it through",
+    "contacted_trusted_person": "Contacted a trusted person",
+    "did_something_else": "Did something else",
+}
+
 st.set_page_config(page_title="FilterSight", page_icon="🔒")
 st.markdown(
     """
     <style>
     :root { --fs-ink:#1B2430; --fs-paper:#F7F8F7; --fs-teal:#2F6F6B; --fs-line:#D8DEDC; }
     .stApp { background:var(--fs-paper); color:var(--fs-ink); }
-    .main .block-container { max-width:760px; padding-left:1rem; padding-right:1rem; }
-    .stButton > button, .stLinkButton > a { min-height:44px; border-radius:8px; }
+.main .block-container {
+    width:100%; max-width:760px; padding-left:1rem; padding-right:1rem;
+    box-sizing:border-box;
+}
+.stButton > button, .stLinkButton > a, .stFormSubmitButton > button, .stDownloadButton > button {
+    min-height:44px; border-radius:8px; color:#FAFAFA !important;
+}
+.stButton > button:disabled {
+    background:#E5E7EB !important; border-color:#CBD5E1 !important;
+    color:#4A5561 !important; opacity:1 !important;
+}
     .stButton > button:focus-visible, .stLinkButton > a:focus-visible, a:focus-visible {
         outline:3px solid #0B5FFF !important; outline-offset:2px;
     }
@@ -41,7 +71,13 @@ st.markdown(
     .help-now { margin:.25rem 0 1.25rem; }
     .help-now a { color:#204F4C; font-weight:700; text-decoration:underline; }
     .session-note { color:#4A5561; font-size:.9rem; }
-    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+.journal-intro { border-left:4px solid var(--fs-teal); padding:.15rem 0 .15rem 1rem; margin:0 0 1.5rem; }
+.journal-intro strong { color:var(--fs-teal); font-size:.9rem; }
+.stTextInput input, .stTextArea textarea {
+    background:#FFFFFF !important; color:var(--fs-ink) !important;
+}
+div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
       overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     @media (max-width:480px) {
       .main .block-container { width:100%; max-width:100%; padding:1rem; }
@@ -73,6 +109,279 @@ def go_to_checkin(screen: str):
     st.session_state.pop("checkin_exercise_result", None)
     st.session_state.checkin_screen = screen
     st.rerun()
+
+
+def clear_journal_state():
+    for key in list(st.session_state.keys()):
+        if key.startswith("journal_"):
+            st.session_state.pop(key, None)
+
+
+def go_to_member_screen(screen=None):
+    st.session_state.member_screen = screen
+    st.rerun()
+
+
+def journal_error_message(error):
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    if status == 429:
+        return "You've made several changes recently. Wait a little, then try again."
+    if status == 503:
+        return "Your private journal isn't available right now. Please try again later."
+    if status in (401, 403):
+        return "Your sign-in is no longer valid. Sign in again to continue."
+    if status == 422:
+        return "Check the entry limits and remove any website address, then try again."
+    return "We couldn't complete that journal request. Please try again."
+
+
+def journal_get(path, headers, **kwargs):
+    response = requests.get(f"{BACKEND_URL}/member/journal{path}", headers=headers, timeout=15, **kwargs)
+    response.raise_for_status()
+    return response.json()
+
+
+def journal_write(method, path, headers, **kwargs):
+    request_method = getattr(requests, method)
+    response = request_method(
+        f"{BACKEND_URL}/member/journal{path}", headers=headers, timeout=15, **kwargs
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def entry_heading(entry):
+    created = (entry.get("created_at") or "").replace("T", " ").replace(".000000Z", " UTC")
+    category = JOURNAL_CATEGORIES.get(entry.get("category"), "Journal entry")
+    return f"{category} · {created}" if created else category
+
+
+def journal_option_label(value, labels):
+    return "Not selected" if value is None else labels.get(value, "Other")
+
+
+def refresh_journal_entries():
+    for key in ("journal_entries_loaded", "journal_entries", "journal_next_cursor"):
+        st.session_state.pop(key, None)
+
+
+def render_private_journal(headers):
+    st.title("Private journal")
+    if st.button("Back to dashboard", key="journal_back"):
+        clear_journal_state()
+        go_to_member_screen()
+
+    st.markdown(
+        '<div class="journal-intro"><strong>Private, persistent workspace</strong><br>'
+        "Each goal, coping-plan item, and note is encrypted before it is stored. "
+        "They are not sent to the AI companion unless you choose to discuss them separately.</div>",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        if not st.session_state.get("journal_profile_loaded"):
+            profile = journal_get("/profile", headers)
+            st.session_state.journal_goal = profile.get("goal") or ""
+            st.session_state.journal_why = profile.get("why_it_matters") or ""
+            actions = list(profile.get("coping_actions") or [])[:3]
+            actions += [""] * (3 - len(actions))
+            for index, action in enumerate(actions, start=1):
+                st.session_state[f"journal_coping_{index}"] = action
+            st.session_state.journal_profile_loaded = True
+        if not st.session_state.get("journal_entries_loaded"):
+            entries_payload = journal_get("/entries", headers, params={"limit": 50})
+            st.session_state.journal_entries = entries_payload.get("entries") or []
+            st.session_state.journal_next_cursor = entries_payload.get("next_cursor")
+            st.session_state.journal_entries_loaded = True
+    except requests.RequestException as error:
+        st.error(journal_error_message(error))
+        return
+
+    if st.session_state.pop("journal_notice", None):
+        st.success("Your journal changes were saved.")
+
+    st.subheader("Your plan")
+    st.caption("Keep one goal and up to three actions you can turn to. You can change or clear them anytime.")
+    with st.form("journal_profile_form"):
+        st.text_input("Personal goal", key="journal_goal", max_chars=500)
+        st.text_area("Why it matters", key="journal_why", max_chars=1000)
+        for index in range(1, 4):
+            st.text_input(
+                f"Coping action {index}",
+                key=f"journal_coping_{index}",
+                max_chars=250,
+            )
+        save_profile = st.form_submit_button("Save plan")
+    if save_profile:
+        payload = {
+            "goal": st.session_state.journal_goal or None,
+            "why_it_matters": st.session_state.journal_why or None,
+            "coping_actions": [
+                st.session_state[f"journal_coping_{index}"]
+                for index in range(1, 4)
+                if st.session_state[f"journal_coping_{index}"].strip()
+            ],
+        }
+        try:
+            journal_write("patch", "/profile", headers, json=payload)
+            st.success("Your plan was saved.")
+        except requests.RequestException as error:
+            st.error(journal_error_message(error))
+
+    st.divider()
+    st.subheader("New journal entry")
+    st.caption("Choose only what fits. A category, an action, or a private note is enough.")
+    with st.form("journal_entry_form", clear_on_submit=True):
+        category = st.selectbox(
+            "What was happening?",
+            options=[None, *JOURNAL_CATEGORIES],
+            format_func=lambda value: journal_option_label(value, JOURNAL_CATEGORIES),
+            key="journal_new_category",
+        )
+        action = st.selectbox(
+            "What did you do?",
+            options=[None, *JOURNAL_ACTIONS],
+            format_func=lambda value: journal_option_label(value, JOURNAL_ACTIONS),
+            key="journal_new_action",
+        )
+        note = st.text_area(
+            "Private note (optional)",
+            max_chars=2000,
+            key="journal_new_note",
+            help="Don't include website addresses, domains, DNS queries, or browsing history.",
+        )
+        save_entry = st.form_submit_button("Save entry")
+    if save_entry:
+        payload = {"category": category, "action": action, "note": note or None}
+        if not any(payload.values()):
+            st.error("Choose a category, an action, or write a note before saving.")
+        else:
+            try:
+                journal_write("post", "/entries", headers, json=payload)
+                refresh_journal_entries()
+                st.session_state.journal_notice = True
+                st.rerun()
+            except requests.RequestException as error:
+                st.error(journal_error_message(error))
+
+    st.divider()
+    st.subheader("Your entries")
+    entries = st.session_state.get("journal_entries", [])
+    if not entries:
+        st.markdown("**No journal entries yet.** When you save one, it will appear here newest first.")
+    for entry in entries:
+        entry_id = entry["id"]
+        with st.expander(entry_heading(entry)):
+            if entry.get("category"):
+                st.write(f"**What was happening:** {JOURNAL_CATEGORIES.get(entry['category'], 'Other')} ")
+            if entry.get("action"):
+                st.write(f"**What you did:** {JOURNAL_ACTIONS.get(entry['action'], 'Other')}")
+            if entry.get("note"):
+                st.write(entry["note"])
+            with st.form(f"journal_edit_{entry_id}"):
+                edit_category = st.selectbox(
+                    "Edit what was happening",
+                    options=[None, *JOURNAL_CATEGORIES],
+                    index=[None, *JOURNAL_CATEGORIES].index(entry.get("category")),
+                    format_func=lambda value: journal_option_label(value, JOURNAL_CATEGORIES),
+                    key=f"journal_edit_category_{entry_id}",
+                )
+                edit_action = st.selectbox(
+                    "Edit what you did",
+                    options=[None, *JOURNAL_ACTIONS],
+                    index=[None, *JOURNAL_ACTIONS].index(entry.get("action")),
+                    format_func=lambda value: journal_option_label(value, JOURNAL_ACTIONS),
+                    key=f"journal_edit_action_{entry_id}",
+                )
+                edit_note = st.text_area(
+                    "Edit private note",
+                    value=entry.get("note") or "",
+                    max_chars=2000,
+                    key=f"journal_edit_note_{entry_id}",
+                )
+                save_changes = st.form_submit_button("Save changes")
+            if save_changes:
+                try:
+                    journal_write(
+                        "patch",
+                        f"/entries/{entry_id}",
+                        headers,
+                        json={
+                            "category": edit_category,
+                            "action": edit_action,
+                            "note": edit_note or None,
+                        },
+                    )
+                    refresh_journal_entries()
+                    st.session_state.journal_notice = True
+                    st.rerun()
+                except requests.RequestException as error:
+                    st.error(journal_error_message(error))
+            if st.button("Delete entry", key=f"journal_delete_{entry_id}"):
+                try:
+                    journal_write("delete", f"/entries/{entry_id}", headers)
+                    refresh_journal_entries()
+                    st.session_state.journal_notice = True
+                    st.rerun()
+                except requests.RequestException as error:
+                    st.error(journal_error_message(error))
+
+    next_cursor = st.session_state.get("journal_next_cursor")
+    if next_cursor and st.button("Load more entries", key="journal_load_more"):
+        try:
+            next_page = journal_get(
+                "/entries",
+                headers,
+                params={"limit": 50, "cursor": next_cursor},
+            )
+            st.session_state.journal_entries = [
+                *entries,
+                *(next_page.get("entries") or []),
+            ]
+            st.session_state.journal_next_cursor = next_page.get("next_cursor")
+            st.rerun()
+        except requests.RequestException as error:
+            st.error(journal_error_message(error))
+
+    st.divider()
+    st.subheader("Your journal data")
+    st.caption("Export a readable JSON copy or permanently delete your stored goal, coping plan, and journal entries.")
+    if st.button("Prepare JSON export", key="journal_prepare_export"):
+        try:
+            export = journal_get("/export", headers)
+            st.session_state.journal_export = json.dumps(export, indent=2, ensure_ascii=False)
+        except requests.RequestException as error:
+            st.error(journal_error_message(error))
+    if st.session_state.get("journal_export"):
+        st.download_button(
+            "Download journal export",
+            data=st.session_state.journal_export,
+            file_name="filtersight-journal-export.json",
+            mime="application/json",
+        )
+    confirmed = st.checkbox(
+        "I understand this permanently deletes my stored journal and plan.",
+        key="journal_delete_all_confirmed",
+    )
+    if st.button(
+        "Delete all journal data",
+        type="secondary",
+        disabled=not confirmed,
+        key="journal_delete_all",
+    ):
+        try:
+            journal_write("delete", "/data", headers)
+            clear_journal_state()
+            st.session_state.member_screen = "journal"
+            st.session_state.journal_notice = True
+            st.rerun()
+        except requests.RequestException as error:
+            st.error(journal_error_message(error))
+
+    st.caption(
+        "If your subscription has already ended and you cannot sign in, email support@filtersight.com from your subscription email to request deletion."
+    )
 
 
 def render_help_action():
@@ -312,7 +621,7 @@ def render_member_dashboard():
                     st.error("We couldn't reach account sign-in. Please try again later.")
         return
 
-    if not st.session_state.get("checkin_screen"):
+    if not st.session_state.get("checkin_screen") and st.session_state.get("member_screen") != "journal":
         st.title("Your FilterSight dashboard")
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -343,6 +652,8 @@ def render_member_dashboard():
     st.divider()
     if st.session_state.get("checkin_screen"):
         render_checkin_flow(headers)
+    elif st.session_state.get("member_screen") == "journal":
+        render_private_journal(headers)
     else:
         st.subheader("Support in the moment")
         st.caption("A calm, private place to pause, reset, or talk things through.")
@@ -350,6 +661,11 @@ def render_member_dashboard():
             go_to_checkin("checkin")
         if st.button("Talk it through"):
             go_to_checkin("chat")
+        st.divider()
+        st.subheader("Private journal")
+        st.caption("Keep an encrypted goal, coping plan, and private notes you can return to.")
+        if st.button("Open private journal"):
+            go_to_member_screen("journal")
 
     if st.button("Sign out"):
         try:
@@ -358,7 +674,9 @@ def render_member_dashboard():
             pass
         st.session_state.pop("member_access_token", None)
         st.session_state.pop("member_chat_history", None)
+        st.session_state.pop("member_screen", None)
         clear_checkin_state()
+        clear_journal_state()
         st.rerun()
 
 # ---------------------------------------------------------------------------

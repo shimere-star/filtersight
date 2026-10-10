@@ -52,6 +52,7 @@ SUPPORTED_PLANS = {CURRENT_PLAN}
 NEXTDNS_API_KEY = os.environ.get("NEXTDNS_API_KEY")
 NEXTDNS_PROFILE_ID = os.environ.get("NEXTDNS_PROFILE_ID")
 BACKFILL_ADMIN_SECRET = os.environ.get("BACKFILL_ADMIN_SECRET")
+JOURNAL_ADMIN_SECRET = os.environ.get("JOURNAL_ADMIN_SECRET")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
 # Reuse the configured verified sender address; allow a SendGrid-specific name too.
 SENDGRID_FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL") or os.environ.get("SMTP_FROM_EMAIL")
@@ -484,6 +485,53 @@ def _journal_member(request: Request):
 
 
 app.include_router(journal_router.build_router(journal, _journal_member))
+
+
+def require_journal_admin_secret(request: Request) -> None:
+    """Authenticate the narrow support-only journal deletion endpoint."""
+    supplied = request.headers.get("X-Journal-Admin-Secret", "")
+    if not JOURNAL_ADMIN_SECRET:
+        raise HTTPException(status_code=503, detail="Journal support deletion is not configured")
+    if not hmac.compare_digest(supplied, JOURNAL_ADMIN_SECRET):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.post("/admin/journal/delete")
+async def support_delete_journal(request: Request):
+    """Permanently erase journal content for a support-verified member.
+
+    This route intentionally does not load the journal encryption key: deletion
+    must remain possible after a subscription ends even when the member cannot
+    sign in or journal decryption is unavailable. The response never reveals
+    whether the address had journal data.
+    """
+    require_journal_admin_secret(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Enter a valid subscription email") from None
+    email = body.get("email") if isinstance(body, dict) else None
+    if not isinstance(email, str):
+        raise HTTPException(status_code=400, detail="Enter a valid subscription email")
+    email = email.strip().lower()
+    if len(email) > 254 or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid subscription email")
+
+    db = get_db()
+    try:
+        retention_exists = db.execute(
+            "SELECT 1 FROM journal_retention WHERE member_email = ?", (email,)
+        ).fetchone()
+        if journal_store.has_data(db, email) or retention_exists:
+            with journal_store.immediate_transaction(db):
+                journal_store.purge_member(db, email, journal_store.utcnow())
+    except sqlite3.Error as error:
+        logger.error("journal.support_delete_failed error=%s", type(error).__name__)
+        raise HTTPException(status_code=500, detail="Deletion could not be completed") from None
+    finally:
+        db.close()
+    logger.info("journal.support_delete_processed")
+    return {"status": "processed"}
 
 
 def _journal_retention_hook(action, *args):
