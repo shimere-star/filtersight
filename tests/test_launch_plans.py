@@ -1,5 +1,8 @@
 import asyncio
 import hashlib
+import os
+import subprocess
+import sys
 import tempfile
 import time
 import types
@@ -422,6 +425,50 @@ class LaunchPlanTests(unittest.TestCase):
         self.assertNotIn("tier 1", visible)
         self.assertNotIn("tier 2", visible)
         self.assertNotIn("filter + companion", visible)
+
+    def test_payment_verification_failure_never_displays_raw_exception(self):
+        """Catches leaking Stripe or network exception details to a customer."""
+        app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=20)
+        app.query_params["session_id"] = "cs_test_unavailable"
+
+        with (
+            patch(
+                "stripe.checkout.Session.retrieve",
+                side_effect=RuntimeError("private upstream detail sk_test_do_not_show"),
+            ),
+            patch("traceback.print_exc") as raw_trace,
+        ):
+            app.run()
+
+        self.assertEqual(list(app.exception), [])
+        visible = " ".join(
+            [item.value for item in app.error]
+            + [item.value for item in app.caption]
+            + [item.value for item in app.markdown]
+        )
+        self.assertIn("We couldn't verify this payment", visible)
+        self.assertNotIn("private upstream detail", visible)
+        self.assertNotIn("sk_test_do_not_show", visible)
+        self.assertNotIn("Debug info", visible)
+        raw_trace.assert_not_called()
+
+    def test_backend_database_path_can_be_isolated_by_environment(self):
+        """Catches local or staging runs writing to Railway's production path."""
+        with tempfile.TemporaryDirectory() as directory:
+            expected = str(Path(directory) / "isolated-customers.db")
+            environment = os.environ.copy()
+            environment["DB_PATH"] = expected
+            result = subprocess.run(
+                [sys.executable, "-c", "import webhook_server; print(webhook_server.DB_PATH)"],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), expected)
 
     def test_checkout_uses_single_current_plan_metadata(self):
         """Catches provisioning a checkout with retired tier metadata."""

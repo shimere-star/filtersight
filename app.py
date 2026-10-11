@@ -4,7 +4,7 @@ import uuid
 import os
 import json
 import requests
-import traceback
+import logging
 import time
 
 from companion_flow import (
@@ -14,6 +14,8 @@ from companion_flow import (
     INTERVENTIONS,
     route_checkin,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # SETUP: Set these as environment variables (never hardcode real keys in code
@@ -725,18 +727,13 @@ else:
         plan_id = session.metadata.to_dict().get("plan") if session.metadata else None
         paid = paid and plan_id == PLAN_ID
     except Exception as e:
-        traceback.print_exc()
+        logger.error("payment_verification_failed error=%s", type(e).__name__)
         paid = False
         customer_email = None
         plan_id = None
-        verify_error = str(e)
-    else:
-        verify_error = None
 
     if not paid:
         st.error("We couldn't verify this payment. If you were just charged, contact support.")
-        if verify_error:
-            st.caption(f"Debug info: {verify_error}")
     else:
         st.success(f"Payment verified for {customer_email}. Preparing your profile…")
         st.link_button("Open your member dashboard", f"{APP_BASE_URL}/?view=member")

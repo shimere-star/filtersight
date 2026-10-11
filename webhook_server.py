@@ -57,7 +57,7 @@ SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
 # Reuse the configured verified sender address; allow a SendGrid-specific name too.
 SENDGRID_FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL") or os.environ.get("SMTP_FROM_EMAIL")
 
-DB_PATH = "/data/customers.db"
+DB_PATH = os.environ.get("DB_PATH", "/data/customers.db")
 
 
 def get_db():
