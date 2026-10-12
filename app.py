@@ -69,6 +69,10 @@ st.markdown(
     .stButton > button:focus-visible, .stLinkButton > a:focus-visible, a:focus-visible {
         outline:3px solid #0B5FFF !important; outline-offset:2px;
     }
+    [data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] p,
+    div[role="radiogroup"] label, div[role="radiogroup"] label p {
+        color:var(--fs-ink) !important;
+    }
     div[role="radiogroup"] label { min-height:44px; padding:.35rem 0; }
     .help-now { margin:.25rem 0 1.25rem; }
     .help-now a { color:#204F4C; font-weight:700; text-decoration:underline; }
