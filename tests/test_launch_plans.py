@@ -47,6 +47,13 @@ class TextCollector(HTMLParser):
 
 
 class LaunchPlanTests(unittest.TestCase):
+    def test_light_surface_forces_readable_widget_labels(self):
+        """Catches dark-theme widget labels disappearing on the light app surface."""
+        source = (ROOT / "app.py").read_text()
+
+        self.assertIn('[data-testid="stWidgetLabel"]', source)
+        self.assertIn('div[role="radiogroup"] label p', source)
+
     def _member_app(self, screen=None, session_state=None):
         profile_response = Mock()
         profile_response.raise_for_status.return_value = None
