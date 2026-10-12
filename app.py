@@ -698,16 +698,24 @@ elif query_params.get("session_id") is None:
         elif not stripe.api_key or not STRIPE_PRICE_ID:
             st.error("Stripe isn't configured yet — check STRIPE_SECRET_KEY and STRIPE_PRICE_ID.")
         else:
-            session = stripe.checkout.Session.create(
-                mode="subscription",
-                customer_email=normalized_email,
-                line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-                success_url=f"{APP_BASE_URL}/?session_id={{CHECKOUT_SESSION_ID}}",
-                cancel_url=APP_BASE_URL,
-                metadata={"plan": PLAN_ID},
-                subscription_data={"metadata": {"plan": PLAN_ID}},
-            )
-            st.link_button("Go to secure checkout", session.url)
+            try:
+                session = stripe.checkout.Session.create(
+                    mode="subscription",
+                    customer_email=normalized_email,
+                    line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+                    success_url=f"{APP_BASE_URL}/?session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=APP_BASE_URL,
+                    metadata={"plan": PLAN_ID},
+                    subscription_data={"metadata": {"plan": PLAN_ID}},
+                )
+            except Exception as e:
+                logger.error("checkout_session_creation_failed error=%s", type(e).__name__)
+                st.error(
+                    "We couldn't start checkout right now. Please try again in a moment "
+                    "or contact support@filtersight.com."
+                )
+            else:
+                st.link_button("Go to secure checkout", session.url)
 
 
 # ---------------------------------------------------------------------------

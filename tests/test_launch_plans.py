@@ -493,6 +493,38 @@ class LaunchPlanTests(unittest.TestCase):
             {"metadata": {"plan": "filtersight"}},
         )
 
+    def test_checkout_creation_failure_never_displays_raw_exception(self):
+        """Catches leaking Stripe configuration or request details to a customer."""
+        app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=20)
+        with (
+            patch.dict(
+                "os.environ",
+                {"STRIPE_SECRET_KEY": "sk_test_123", "STRIPE_PRICE_ID": "price_10"},
+                clear=False,
+            ),
+            patch(
+                "stripe.checkout.Session.create",
+                side_effect=RuntimeError(
+                    "No such price: price_private_detail sk_test_do_not_show"
+                ),
+            ),
+        ):
+            app.run()
+            app.text_input[0].set_value("member@example.com")
+            app.button[0].click().run()
+
+        self.assertEqual(list(app.exception), [])
+        visible = " ".join(
+            [item.value for item in app.error]
+            + [item.value for item in app.caption]
+            + [item.value for item in app.markdown]
+        )
+        self.assertIn("We couldn't start checkout right now", visible)
+        self.assertIn("support@filtersight.com", visible)
+        self.assertNotIn("No such price", visible)
+        self.assertNotIn("price_private_detail", visible)
+        self.assertNotIn("sk_test_do_not_show", visible)
+
     def test_cooldown_renders_as_temporary_session_timer(self):
         """Catches a cooldown that fails to render or claims persistence."""
         with patch(
