@@ -795,19 +795,38 @@ def render_companion(headers):
         }
         [data-testid="stChatMessageAvatarAssistant"] { background:#F08A72; }
         [data-testid="stChatMessageAvatarUser"] { background:#CDEAD9; }
+        [data-testid="stChatInput"],
+        [data-testid="stChatInput"] > div,
+        [data-testid="stChatInput"] div[data-baseweb="textarea"] {
+            border-color:#B8C9C0 !important;
+            background:#FFFFFF !important;
+        }
         [data-testid="stChatInput"] {
+            overflow:hidden;
             border:1px solid #B8C9C0 !important;
             border-radius:18px !important;
-            background:#FFFFFF !important;
             box-shadow:0 10px 28px rgba(18,45,37,.12);
         }
         [data-testid="stChatInput"] textarea {
+            background:#FFFFFF !important;
             color:#1B2D26 !important;
+            -webkit-text-fill-color:#1B2D26 !important;
             caret-color:#1F5A49;
         }
-        [data-testid="stBottomBlockContainer"] {
+        [data-testid="stChatInput"] textarea::placeholder {
+            color:#68766F !important;
+            -webkit-text-fill-color:#68766F !important;
+            opacity:1;
+        }
+        [data-testid="stChatInput"] button {
+            background:#1F5A49 !important;
+            color:#FFFFFF !important;
+        }
+        [data-testid="stBottom"],
+        [data-testid="stBottomBlockContainer"],
+        .stBottomBlockContainer {
             padding-top:.75rem;
-            background:linear-gradient(to top,#F7F8F7 72%,rgba(247,248,247,0));
+            background:#F7F8F7 !important;
         }
         .companion-controls {
             margin:1.25rem 0 .4rem;
