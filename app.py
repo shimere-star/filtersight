@@ -687,16 +687,164 @@ def render_numbered_steps(steps):
 
 
 def render_companion(headers):
-    st.title("Talk it through")
+    st.markdown(
+        """
+        <style>
+        .companion-header {
+            display:flex;
+            align-items:center;
+            gap:1rem;
+            margin:.3rem 0 .8rem;
+            padding:1.15rem 1.25rem;
+            border:1px solid rgba(183,220,198,.28);
+            border-radius:20px;
+            background:linear-gradient(145deg,#102821 0%,#183D32 100%);
+            box-shadow:0 16px 40px rgba(15,39,32,.16);
+        }
+        .companion-avatar {
+            position:relative;
+            flex:0 0 auto;
+            width:54px; height:54px;
+            display:grid; place-items:center;
+            border-radius:17px;
+            background:#F08A72;
+            color:#102821;
+            font-family:Georgia,"Times New Roman",serif;
+            font-size:1.2rem;
+            font-weight:800;
+            box-shadow:0 0 0 5px rgba(240,138,114,.13);
+        }
+        .companion-avatar::after {
+            content:"";
+            position:absolute;
+            right:-2px; bottom:-2px;
+            width:12px; height:12px;
+            border:3px solid #183D32;
+            border-radius:50%;
+            background:#8DDBAD;
+        }
+        .companion-heading { min-width:0; flex:1; }
+        .companion-heading h1 {
+            margin:0 0 .18rem;
+            color:#FFF9EF !important;
+            font-family:Georgia,"Times New Roman",serif;
+            font-size:1.55rem;
+            letter-spacing:-.02em;
+        }
+        .companion-heading p {
+            margin:0;
+            color:#BFD9CD !important;
+            font-size:.87rem;
+        }
+        .companion-private {
+            flex:0 0 auto;
+            padding:.42rem .7rem;
+            border:1px solid rgba(190,226,206,.3);
+            border-radius:999px;
+            color:#DDF2E6;
+            font-size:.75rem;
+            font-weight:700;
+        }
+        .companion-intro {
+            margin:0 0 1rem;
+            padding:.85rem 1rem;
+            border:1px solid #D7E5DD;
+            border-radius:13px;
+            background:#F0F7F3;
+            color:#3D564C;
+            font-size:.88rem;
+            line-height:1.5;
+        }
+        .companion-intro strong { color:#173C31; }
+        [data-testid="stChatMessage"] {
+            align-items:flex-end;
+            gap:.55rem;
+            padding:.32rem 0;
+            background:transparent !important;
+        }
+        [data-testid="stChatMessageContent"] {
+            max-width:78%;
+            padding:.8rem 1rem;
+            border:1px solid #DCE4DF;
+            border-radius:18px 18px 18px 5px;
+            background:#FFFFFF;
+            box-shadow:0 4px 14px rgba(18,45,37,.06);
+        }
+        [data-testid="stChatMessageContent"] p {
+            margin:0;
+            color:#1B2D26 !important;
+            line-height:1.52;
+        }
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+            flex-direction:row-reverse;
+        }
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] {
+            border-color:#1F5A49;
+            border-radius:18px 18px 5px 18px;
+            background:#1F5A49;
+            box-shadow:0 5px 16px rgba(31,90,73,.16);
+        }
+        [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] p {
+            color:#FFFFFF !important;
+        }
+        [data-testid="stChatMessageAvatarAssistant"],
+        [data-testid="stChatMessageAvatarUser"] {
+            width:34px;
+            height:34px;
+            border-radius:11px;
+        }
+        [data-testid="stChatMessageAvatarAssistant"] { background:#F08A72; }
+        [data-testid="stChatMessageAvatarUser"] { background:#CDEAD9; }
+        [data-testid="stChatInput"] {
+            border:1px solid #B8C9C0 !important;
+            border-radius:18px !important;
+            background:#FFFFFF !important;
+            box-shadow:0 10px 28px rgba(18,45,37,.12);
+        }
+        [data-testid="stChatInput"] textarea {
+            color:#1B2D26 !important;
+            caret-color:#1F5A49;
+        }
+        [data-testid="stBottomBlockContainer"] {
+            padding-top:.75rem;
+            background:linear-gradient(to top,#F7F8F7 72%,rgba(247,248,247,0));
+        }
+        .companion-controls {
+            margin:1.25rem 0 .4rem;
+            padding-top:1rem;
+            border-top:1px solid #DCE4DF;
+            color:#68766F;
+            font-size:.82rem;
+        }
+        @media (max-width:480px) {
+            .companion-header { padding:1rem; border-radius:16px; }
+            .companion-avatar { width:46px; height:46px; border-radius:14px; }
+            .companion-private { display:none; }
+            [data-testid="stChatMessageContent"] { max-width:84%; }
+        }
+        </style>
+        <section class="companion-header" aria-labelledby="companion-title">
+            <div class="companion-avatar" aria-hidden="true">FS</div>
+            <div class="companion-heading">
+                <h1 id="companion-title">FilterSight Companion</h1>
+                <p>Online · Here with you now</p>
+            </div>
+            <span class="companion-private">Private session</span>
+        </section>
+        <div class="companion-intro">
+            <strong>A calm place to talk.</strong> No judgment and no pressure—share as much or as little as you want.
+            Your message and recent conversation context are sent to Anthropic for a reply. FilterSight does not save this conversation in its database.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     render_help_action()
-    st.write("Have a private conversation with the AI companion. No judgment — just a calm place to put what's happening into words.")
-    st.info("Your current message and relevant recent conversation history are sent to Anthropic to generate a reply. FilterSight does not save companion conversations in its database.")
     if "member_chat_history" not in st.session_state:
         st.session_state.member_chat_history = [{"role": "assistant", "content": "I'm here. What's on your mind?"}]
     for item in st.session_state.member_chat_history:
         with st.chat_message(item["role"]):
             st.write(item["content"])
-    prompt = st.chat_input("What’s going on right now?")
+    prompt = st.chat_input("Message your companion…")
     if prompt:
         history = st.session_state.member_chat_history[-20:]
         st.session_state.member_chat_history.append({"role": "user", "content": prompt})
@@ -711,7 +859,11 @@ def render_companion(headers):
             reply = "I couldn't connect just now. Please try again in a moment."
         st.session_state.member_chat_history.append({"role": "assistant", "content": reply})
         st.rerun()
-    if st.button("End conversation"):
+    st.markdown(
+        '<div class="companion-controls">Ending this chat clears the conversation from your current session.</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("End private chat", use_container_width=True):
         st.session_state.pop("member_chat_history", None)
         go_to_checkin("chat_complete")
 
