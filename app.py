@@ -73,7 +73,117 @@ st.markdown(
     div[role="radiogroup"] label, div[role="radiogroup"] label p {
         color:var(--fs-ink) !important;
     }
-    div[role="radiogroup"] label { min-height:44px; padding:.35rem 0; }
+    div[role="radiogroup"] {
+        gap:.65rem;
+    }
+    div[role="radiogroup"] label {
+        min-height:62px;
+        padding:.85rem 1rem;
+        margin:0 0 .2rem;
+        border:1px solid #D5DDD8;
+        border-radius:14px;
+        background:#FFFFFF;
+        box-shadow:0 2px 10px rgba(18, 45, 37, .04);
+        transition:border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+        cursor:pointer;
+    }
+    div[role="radiogroup"] label:hover {
+        border-color:#7CA795;
+        background:#F8FCF9;
+        transform:translateY(-1px);
+        box-shadow:0 5px 16px rgba(18, 45, 37, .08);
+    }
+    div[role="radiogroup"] label:has(input:checked) {
+        border-color:#2F6F5E;
+        background:#E5F4EC;
+        box-shadow:0 0 0 2px rgba(47,111,94,.13);
+    }
+    div[role="radiogroup"] input[type="radio"] { accent-color:#2F6F5E; }
+    .checkin-hero {
+        position:relative;
+        overflow:hidden;
+        margin:.25rem 0 1.15rem;
+        padding:2.2rem 2.25rem 2rem;
+        border-radius:24px;
+        background:linear-gradient(145deg,#102821 0%,#183D32 100%);
+        color:#FFF9EF;
+        box-shadow:0 18px 44px rgba(15,39,32,.16);
+    }
+    .checkin-hero::after {
+        content:"";
+        position:absolute;
+        width:180px; height:180px;
+        right:-70px; top:-85px;
+        border-radius:50%;
+        border:34px solid rgba(164,220,190,.12);
+    }
+    .checkin-kicker {
+        display:inline-flex;
+        align-items:center;
+        gap:.45rem;
+        margin-bottom:.85rem;
+        color:#B9E4CE;
+        font-size:.78rem;
+        font-weight:800;
+        letter-spacing:.12em;
+        text-transform:uppercase;
+    }
+    .checkin-kicker::before {
+        content:"";
+        width:8px; height:8px;
+        border-radius:50%;
+        background:#F08A72;
+        box-shadow:0 0 0 4px rgba(240,138,114,.16);
+    }
+    .checkin-hero h1 {
+        position:relative;
+        z-index:1;
+        margin:0 0 .65rem;
+        max-width:560px;
+        color:#FFF9EF !important;
+        font-family:Georgia,"Times New Roman",serif;
+        font-size:clamp(2.25rem,7vw,4rem);
+        line-height:.98;
+        letter-spacing:-.045em;
+    }
+    .checkin-hero p {
+        position:relative;
+        z-index:1;
+        margin:0;
+        max-width:520px;
+        color:#D9E8E1 !important;
+        font-size:1.05rem;
+        line-height:1.6;
+    }
+    .checkin-guidance {
+        display:flex;
+        gap:.75rem;
+        align-items:flex-start;
+        margin:1.15rem 0 1.25rem;
+        padding:1rem 1.05rem;
+        border:1px solid #D7E5DD;
+        border-radius:14px;
+        background:#F0F7F3;
+        color:#29443A;
+    }
+    .checkin-guidance strong { color:#173C31; }
+    .checkin-guidance-icon {
+        flex:0 0 auto;
+        width:28px; height:28px;
+        display:grid; place-items:center;
+        border-radius:50%;
+        background:#CDEAD9;
+        color:#1F5A49;
+        font-weight:800;
+    }
+    .checkin-section-label {
+        margin:1.35rem 0 .35rem;
+        color:#173C31;
+        font-size:.82rem;
+        font-weight:800;
+        letter-spacing:.1em;
+        text-transform:uppercase;
+    }
     .help-now { margin:.25rem 0 1.25rem; }
     .help-now a { color:#204F4C; font-weight:700; text-decoration:underline; }
     .session-note { color:#4A5561; font-size:.9rem; }
@@ -93,6 +203,10 @@ div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !im
     @media (max-width:480px) {
       .main .block-container { width:100%; max-width:100%; padding:1rem; }
       .stButton > button, .stLinkButton > a { width:100%; max-width:100%; }
+      .checkin-hero { padding:1.7rem 1.25rem 1.55rem; border-radius:18px; }
+      .checkin-hero h1 { font-size:2.5rem; }
+      .checkin-hero p { font-size:.98rem; }
+      div[role="radiogroup"] label { padding:.8rem .85rem; }
     }
     </style>
     """,
@@ -541,16 +655,40 @@ def render_checkin_flow(headers):
             clear_checkin_state()
             st.rerun()
     elif screen == "checkin":
-        st.title("Check in")
+        st.markdown(
+            """
+            <section class="checkin-hero" aria-labelledby="checkin-title">
+                <span class="checkin-kicker">Private check-in</span>
+                <h1 id="checkin-title">Let’s pause for a moment.</h1>
+                <p>Tell us what feels closest right now. This stays in your current session and helps us guide you to the right kind of support.</p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
         render_help_action()
-        st.write("Pick the closest one. There's no wrong answer.")
-        choice = st.radio("What's happening right now?", CHECKIN_OPTIONS, index=None, key="checkin_choice")
-        if st.button("Continue", key="checkin_continue"):
+        st.markdown(
+            """
+            <div class="checkin-guidance">
+                <span class="checkin-guidance-icon" aria-hidden="true">✓</span>
+                <div><strong>There’s no wrong answer.</strong><br>Choose the one that feels most true right now.</div>
+            </div>
+            <div class="checkin-section-label">What’s happening right now?</div>
+            """,
+            unsafe_allow_html=True,
+        )
+        choice = st.radio(
+            "What's happening right now?",
+            CHECKIN_OPTIONS,
+            index=None,
+            key="checkin_choice",
+            label_visibility="collapsed",
+        )
+        if st.button("Continue", key="checkin_continue", type="primary", use_container_width=True):
             if not choice:
                 st.error("Pick the option that's closest.")
             else:
                 go_to_checkin(route_checkin(choice))
-        if st.button("Done", key="checkin_done"):
+        if st.button("Not right now", key="checkin_done", use_container_width=True):
             clear_checkin_state()
             st.rerun()
     elif screen == "interventions":
