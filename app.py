@@ -189,6 +189,130 @@ st.markdown(
     .session-note { color:#4A5561; font-size:.9rem; }
 .journal-intro { border-left:4px solid var(--fs-teal); padding:.15rem 0 .15rem 1rem; margin:0 0 1.5rem; }
 .journal-intro strong { color:var(--fs-teal); font-size:.9rem; }
+.journal-hero {
+    position:relative;
+    overflow:hidden;
+    margin:.35rem 0 1rem;
+    padding:2.5rem 2.35rem 2.2rem;
+    border-radius:24px;
+    background:
+        radial-gradient(circle at 88% 8%, rgba(181,225,198,.17) 0 14%, transparent 14.5%),
+        linear-gradient(145deg,#102821 0%,#183D32 100%);
+    color:#FFF9EF;
+    box-shadow:0 20px 48px rgba(15,39,32,.17);
+}
+.journal-hero::before {
+    content:"";
+    position:absolute;
+    width:210px; height:210px;
+    right:-95px; bottom:-125px;
+    border-radius:50%;
+    border:38px solid rgba(240,138,114,.10);
+}
+.journal-kicker {
+    display:inline-flex;
+    align-items:center;
+    gap:.5rem;
+    margin-bottom:.9rem;
+    color:#B9E4CE;
+    font-size:.78rem;
+    font-weight:800;
+    letter-spacing:.13em;
+    text-transform:uppercase;
+}
+.journal-kicker::before {
+    content:"";
+    width:8px; height:8px;
+    border-radius:50%;
+    background:#F08A72;
+    box-shadow:0 0 0 4px rgba(240,138,114,.15);
+}
+.journal-hero h1 {
+    position:relative;
+    z-index:1;
+    margin:0 0 .7rem;
+    color:#FFF9EF !important;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:clamp(2.4rem,7vw,4.2rem);
+    line-height:1;
+    letter-spacing:-.045em;
+}
+.journal-hero p {
+    position:relative;
+    z-index:1;
+    max-width:540px;
+    margin:0;
+    color:#D9E8E1 !important;
+    font-size:1.02rem;
+    line-height:1.65;
+}
+.journal-trust {
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:.7rem;
+    margin:0 0 1.8rem;
+}
+.journal-trust-item {
+    padding:.85rem .9rem;
+    border:1px solid #D7E5DD;
+    border-radius:13px;
+    background:#F0F7F3;
+    color:#29443A;
+    font-size:.83rem;
+    line-height:1.35;
+}
+.journal-trust-item strong {
+    display:block;
+    margin-bottom:.16rem;
+    color:#173C31;
+    font-size:.88rem;
+}
+.journal-section-heading { margin:2rem 0 1rem; }
+.journal-section-heading .eyebrow {
+    margin:0 0 .35rem;
+    color:#2F6F5E;
+    font-size:.75rem;
+    font-weight:800;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+}
+.journal-section-heading h2 {
+    margin:0 0 .35rem;
+    color:#17251F !important;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:2rem;
+    letter-spacing:-.025em;
+}
+.journal-section-heading p {
+    margin:0;
+    color:#5E6B65 !important;
+    line-height:1.55;
+}
+[data-testid="stForm"] {
+    padding:1.35rem 1.4rem 1.45rem;
+    border:1px solid #DCE4DF;
+    border-radius:18px;
+    background:#FFFFFF;
+    box-shadow:0 8px 24px rgba(18,45,37,.06);
+}
+[data-testid="stExpander"] {
+    overflow:hidden;
+    border:1px solid #DCE4DF !important;
+    border-radius:14px !important;
+    background:#FFFFFF;
+    box-shadow:0 4px 16px rgba(18,45,37,.04);
+}
+[data-testid="stExpander"] summary:hover { background:#F1F7F3; }
+.journal-data-note {
+    margin:.6rem 0 1rem;
+    padding:1rem 1.05rem;
+    border-left:4px solid #F08A72;
+    border-radius:0 12px 12px 0;
+    background:#FFF4EF;
+    color:#5D3B32;
+    font-size:.92rem;
+    line-height:1.5;
+}
 .stTextInput input, .stTextArea textarea {
     background:#FFFFFF !important; color:var(--fs-ink) !important;
 }
@@ -206,6 +330,10 @@ div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !im
       .checkin-hero { padding:1.7rem 1.25rem 1.55rem; border-radius:18px; }
       .checkin-hero h1 { font-size:2.5rem; }
       .checkin-hero p { font-size:.98rem; }
+      .journal-hero { padding:1.75rem 1.25rem 1.6rem; border-radius:18px; }
+      .journal-hero h1 { font-size:2.65rem; }
+      .journal-trust { grid-template-columns:1fr; gap:.5rem; }
+      [data-testid="stForm"] { padding:1rem; border-radius:14px; }
       div[role="radiogroup"] label { padding:.8rem .85rem; }
     }
     </style>
@@ -292,15 +420,23 @@ def refresh_journal_entries():
 
 
 def render_private_journal(headers):
-    st.title("Private journal")
-    if st.button("Back to dashboard", key="journal_back"):
+    if st.button("← Back to dashboard", key="journal_back"):
         clear_journal_state()
         go_to_member_screen()
 
     st.markdown(
-        '<div class="journal-intro"><strong>Private, persistent workspace</strong><br>'
-        "Each goal, coping-plan item, and note is encrypted before it is stored. "
-        "They are not sent to the AI companion unless you choose to discuss them separately.</div>",
+        """
+        <section class="journal-hero" aria-labelledby="journal-title">
+            <span class="journal-kicker">Your protected space</span>
+            <h1 id="journal-title">Private journal</h1>
+            <p>A quiet place to remember what matters, make a plan, and notice your progress—at your own pace.</p>
+        </section>
+        <div class="journal-trust" aria-label="Journal privacy information">
+            <div class="journal-trust-item"><strong>Encrypted</strong>Your writing is encrypted before storage.</div>
+            <div class="journal-trust-item"><strong>Kept separate</strong>Nothing is sent to the AI companion automatically.</div>
+            <div class="journal-trust-item"><strong>Always yours</strong>Edit, export, or delete your journal anytime.</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -326,8 +462,16 @@ def render_private_journal(headers):
     if st.session_state.pop("journal_notice", None):
         st.success("Your journal changes were saved.")
 
-    st.subheader("Your plan")
-    st.caption("Keep one goal and up to three actions you can turn to. You can change or clear them anytime.")
+    st.markdown(
+        """
+        <div class="journal-section-heading">
+            <p class="eyebrow">Your north star</p>
+            <h2>Your plan</h2>
+            <p>Keep one meaningful goal and up to three actions you can turn to when things feel difficult.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.form("journal_profile_form"):
         st.text_input("Personal goal", key="journal_goal", max_chars=500)
         st.text_area("Why it matters", key="journal_why", max_chars=1000)
@@ -354,9 +498,16 @@ def render_private_journal(headers):
         except requests.RequestException as error:
             st.error(journal_error_message(error))
 
-    st.divider()
-    st.subheader("New journal entry")
-    st.caption("Choose only what fits. A category, an action, or a private note is enough.")
+    st.markdown(
+        """
+        <div class="journal-section-heading">
+            <p class="eyebrow">A moment to reflect</p>
+            <h2>Write a new entry</h2>
+            <p>Choose only what fits. A category, an action, or a few private words is enough.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.form("journal_entry_form", clear_on_submit=True):
         category = st.selectbox(
             "What was happening?",
@@ -390,8 +541,16 @@ def render_private_journal(headers):
             except requests.RequestException as error:
                 st.error(journal_error_message(error))
 
-    st.divider()
-    st.subheader("Your entries")
+    st.markdown(
+        """
+        <div class="journal-section-heading">
+            <p class="eyebrow">Your timeline</p>
+            <h2>Past entries</h2>
+            <p>Return to earlier moments, notice patterns, or update what you wrote.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     entries = st.session_state.get("journal_entries", [])
     if not entries:
         st.markdown("**No journal entries yet.** When you save one, it will appear here newest first.")
@@ -469,9 +628,17 @@ def render_private_journal(headers):
         except requests.RequestException as error:
             st.error(journal_error_message(error))
 
-    st.divider()
-    st.subheader("Your journal data")
-    st.caption("Export a readable JSON copy or permanently delete your stored goal, coping plan, and journal entries.")
+    st.markdown(
+        """
+        <div class="journal-section-heading">
+            <p class="eyebrow">Privacy controls</p>
+            <h2>Your journal data</h2>
+            <p>Take a readable copy with you or permanently remove everything stored in your journal.</p>
+        </div>
+        <div class="journal-data-note"><strong>You stay in control.</strong> Exporting does not delete anything. Permanent deletion requires a separate confirmation below.</div>
+        """,
+        unsafe_allow_html=True,
+    )
     if st.button("Prepare JSON export", key="journal_prepare_export"):
         try:
             export = journal_get("/export", headers)
