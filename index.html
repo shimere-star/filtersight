@@ -1,180 +1,134 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FilterSight — Stay Accountable</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --ink:#1B2430;
-    --paper:#F7F8F7;
-    --teal:#2F6F6B;
-    --teal-soft:#DCEAE8;
-    --line:#D8DEDC;
-  }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  body{
-    background:var(--paper);
-    color:var(--ink);
-    font-family:'Inter', sans-serif;
-    line-height:1.5;
-  }
-  .display{font-family:'Fraunces', serif;}
-
-  header{
-    display:flex; justify-content:space-between; align-items:center;
-    padding:28px 6vw;
-    border-bottom:1px solid var(--line);
-  }
-  .logo{font-family:'Fraunces', serif; font-weight:600; font-size:1.3rem; letter-spacing:-0.02em;}
-  nav a{color:var(--ink); text-decoration:none; margin-left:28px; font-size:0.95rem; opacity:0.75;}
-  nav a:hover{opacity:1;}
-
-  .hero{
-    max-width:760px; margin:0 auto;
-    padding:12vh 6vw 8vh;
-    text-align:center;
-  }
-  .eyebrow{
-    font-size:0.85rem; letter-spacing:0.08em; text-transform:uppercase;
-    color:var(--teal); font-weight:600; margin-bottom:20px;
-  }
-  h1{
-    font-size:clamp(2.2rem, 5vw, 3.6rem);
-    font-weight:500; line-height:1.12; letter-spacing:-0.01em;
-    margin-bottom:22px;
-  }
-  .sub{
-    font-size:1.15rem; color:#4A5561; max-width:520px; margin:0 auto 40px;
-  }
-  .horizon{
-    width:100%; height:1px; background:linear-gradient(90deg, transparent, var(--teal), transparent);
-    margin:56px 0; opacity:0.5;
-  }
-
-  .cta{
-    display:inline-block; background:var(--ink); color:var(--paper);
-    padding:15px 34px; border-radius:2px; text-decoration:none;
-    font-size:0.98rem; font-weight:500; letter-spacing:0.01em;
-    transition:background 0.2s ease;
-  }
-  .cta:hover{background:var(--teal);}
-  .cta-note{font-size:0.85rem; color:#8A9298; margin-top:14px;}
-
-  section{max-width:900px; margin:0 auto; padding:6vh 6vw;}
-  .how{
-    display:grid; grid-template-columns:repeat(3, 1fr); gap:36px;
-    padding-top:4vh;
-  }
-  .step{border-top:1px solid var(--line); padding-top:20px;}
-  .step .label{font-family:'Fraunces', serif; font-size:1.2rem; margin-bottom:10px;}
-  .step p{color:#4A5561; font-size:0.95rem;}
-
-  .pricing{max-width:620px; margin:0 auto; padding-top:2vh;}
-  .plan{
-    border:1px solid var(--line); padding:32px; background:#fff;
-  }
-  .plan.featured{border-color:var(--teal); background:var(--teal-soft);}
-  .plan h3{font-family:'Fraunces', serif; font-size:1.4rem; margin-bottom:6px;}
-  .price{font-size:2rem; font-family:'Fraunces', serif; margin:14px 0;}
-  .price span{font-size:1rem; color:#4A5561;}
-  .plan ul{list-style:none; margin:20px 0; color:#4A5561; font-size:0.92rem;}
-  .plan li{padding:6px 0; border-bottom:1px solid var(--line);}
-  .plan .cta{width:100%; text-align:center; background:var(--ink); color:#fff; margin-top:10px;}
-  .plan.featured .cta{background:var(--teal);}
-
-  footer{
-    border-top:1px solid var(--line); padding:40px 6vw;
-    display:flex; justify-content:space-between; align-items:center;
-    font-size:0.85rem; color:#8A9298;
-  }
-  footer a{color:#8A9298; margin-left:20px; text-decoration:none;}
-
-  @media (max-width:640px){
-    header{align-items:flex-start; gap:18px; padding:20px 16px;}
-    nav{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px 16px;}
-    nav a{margin-left:0;}
-    .how{grid-template-columns:1fr;}
-    .pricing{grid-template-columns:1fr;}
-    footer{flex-direction:column; gap:14px; text-align:center;}
-    footer a{margin:0 10px;}
-  }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FilterSight private DNS filtering and calm, private support.">
+  <title>FilterSight — A quieter kind of accountability</title>
+  <style>
+    :root{
+      --ink:#14231f;--night:#10231e;--night-2:#183b32;--pine:#225c4b;--mint:#c7f0d9;
+      --paper:#f3f0e8;--cream:#fffaf1;--white:#ffffff;--coral:#f58b6b;--gold:#edc870;
+      --muted:#5d6b66;--line:rgba(20,35,31,.16);--night-line:rgba(255,255,255,.18);
+      --radius-sm:12px;--radius-md:22px;--radius-lg:38px;--shadow:0 24px 70px rgba(11,36,29,.18);
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:inherit;text-decoration:none}button,a{touch-action:manipulation}
+    a:focus-visible,button:focus-visible{outline:3px solid var(--gold);outline-offset:4px}
+    .serif{font-family:Georgia,"Times New Roman",serif;font-weight:500;letter-spacing:-.045em}
+    .shell{width:min(1240px,calc(100% - 48px));margin-inline:auto}
+    .top{background:var(--night);color:var(--cream);position:relative;overflow:hidden}
+    .top::before{content:"";position:absolute;width:680px;height:680px;border-radius:50%;background:radial-gradient(circle,rgba(93,214,159,.22),rgba(93,214,159,0) 68%);right:-210px;top:-250px;pointer-events:none}
+    nav{height:88px;display:flex;align-items:center;justify-content:space-between;gap:28px;border-bottom:1px solid var(--night-line);position:relative;z-index:3}
+    .brand{display:flex;align-items:center;gap:12px;font-family:Georgia,"Times New Roman",serif;font-size:24px;font-weight:700;letter-spacing:-.03em}
+    .brand-mark{width:34px;height:34px;border:1px solid rgba(255,255,255,.45);border-radius:50%;position:relative;display:inline-block}
+    .brand-mark::before,.brand-mark::after{content:"";position:absolute;border-radius:999px;background:var(--mint);height:3px;left:7px;right:7px}.brand-mark::before{top:11px}.brand-mark::after{top:19px;left:11px}
+    .navlinks{display:flex;align-items:center;gap:30px;color:rgba(255,250,241,.78);font-size:14px}.navlinks a:hover{color:var(--white)}
+    .sign-in{border:1px solid rgba(255,255,255,.36);border-radius:999px;padding:10px 17px;color:var(--white)!important}
+    .hero{min-height:720px;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(430px,.95fr);gap:60px;align-items:center;padding-block:70px 96px;position:relative;z-index:2}
+    .kicker{display:flex;align-items:center;gap:11px;text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:700;color:var(--mint)}
+    .kicker::before{content:"";width:28px;height:1px;background:currentColor}
+    h1{font-size:clamp(56px,6.1vw,92px);line-height:.95;margin:28px 0;color:var(--cream);max-width:770px}
+    .hero-copy>p{font-size:19px;line-height:1.65;color:rgba(255,250,241,.75);max-width:620px;margin:0}
+    .actions{display:flex;align-items:center;gap:16px;margin-top:38px;flex-wrap:wrap}.button{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:0 23px;border-radius:999px;font-weight:700;font-size:15px;transition:transform .2s ease,background .2s ease}.button:hover{transform:translateY(-2px)}
+    .button-primary{background:var(--coral);color:#1c2824}.button-primary:hover{background:#ffa184}.button-quiet{border:1px solid rgba(255,255,255,.3);color:var(--cream)}
+    .fine{margin-top:16px!important;font-size:13px!important;color:rgba(255,250,241,.52)!important}
+    .visual{min-height:540px;position:relative;display:grid;place-items:center}
+    .halo{position:absolute;width:min(500px,100%);aspect-ratio:1;border-radius:50%;background:linear-gradient(145deg,rgba(199,240,217,.26),rgba(245,139,107,.12));border:1px solid rgba(255,255,255,.18);box-shadow:inset 0 0 80px rgba(255,255,255,.04)}
+    .halo::before,.halo::after{content:"";position:absolute;border:1px solid rgba(255,255,255,.15);border-radius:50%;inset:34px}.halo::after{inset:78px}
+    .device{width:330px;height:474px;border-radius:40px;background:#edf7ef;border:9px solid #0b1714;box-shadow:0 30px 70px rgba(0,0,0,.4);position:relative;overflow:hidden;transform:rotate(2deg);z-index:2}
+    .device-top{height:62px;background:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid #dce9e0}.mini-brand{font-family:Georgia,"Times New Roman",serif;font-weight:700}.dot{width:9px;height:9px;border-radius:50%;background:#58aa81;box-shadow:0 0 0 6px #dff3e8}
+    .screen{padding:25px 22px}.screen small{color:#6b7d75;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:.12em}.screen h2{font:500 32px/1.08 Georgia,"Times New Roman",serif;letter-spacing:-.04em;margin:8px 0 24px}
+    .protected{background:var(--night);color:white;border-radius:18px;padding:19px;box-shadow:0 15px 34px rgba(14,39,33,.17)}.protected-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#b7cfc5}.protected strong{font-size:38px;line-height:1.2}.bar{height:7px;background:rgba(255,255,255,.14);border-radius:99px;overflow:hidden;margin-top:13px}.bar span{display:block;width:78%;height:100%;background:var(--mint);border-radius:inherit}
+    .chat{margin-top:13px;background:#fff;border:1px solid #dce7df;border-radius:18px;padding:16px}.chat-label{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px}.chat-label i{width:23px;height:23px;background:var(--coral);border-radius:50%;display:inline-block}.bubble{margin-top:13px;background:#f3f0e8;border-radius:4px 14px 14px 14px;padding:11px 12px;color:#475650;font-size:12px;line-height:1.45}
+    .privacy-chip{position:absolute;left:-10px;bottom:76px;z-index:3;background:var(--cream);color:var(--ink);border-radius:16px;padding:14px 18px;box-shadow:var(--shadow);font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px}.lock{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--mint);font-size:12px}
+    .trust{background:var(--cream);border-bottom:1px solid var(--line)}.trust-row{min-height:104px;display:grid;grid-template-columns:1.1fr repeat(3,1fr);gap:20px;align-items:center}.trust-title{font-family:Georgia,"Times New Roman",serif;font-size:20px}.trust-point{font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:9px}.check{display:grid;place-items:center;width:23px;height:23px;border:1px solid var(--pine);border-radius:50%;color:var(--pine);font-size:12px}
+    section{padding:112px 0}.section-head{max-width:720px;margin-bottom:62px}.label{text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:800;color:var(--pine)}h2{font-size:clamp(42px,5vw,66px);line-height:1.02;margin:16px 0 0}.section-head p{font-size:18px;color:var(--muted);margin:22px 0 0;max-width:620px}
+    .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.step{min-height:360px;border:1px solid var(--line);border-radius:var(--radius-md);padding:30px;background:rgba(255,255,255,.35);display:flex;flex-direction:column}.step:nth-child(2){background:var(--mint)}.step:nth-child(3){background:#ecd8cf}.step-num{font:700 13px/1 Arial,sans-serif;color:var(--pine)}.step-icon{height:110px;display:flex;align-items:center}.glyph{width:76px;height:76px;border-radius:22px;background:var(--cream);border:1px solid var(--line);display:grid;place-items:center;font-size:30px;box-shadow:0 10px 26px rgba(20,35,31,.08)}.step h3{font:500 30px/1.1 Georgia,"Times New Roman",serif;letter-spacing:-.03em;margin:10px 0 13px}.step p{margin:0;color:#4e5f58}
+    .privacy{background:var(--night);color:var(--cream);overflow:hidden;position:relative}.privacy::after{content:"";position:absolute;width:600px;height:600px;border:1px solid rgba(255,255,255,.08);border-radius:50%;right:-250px;bottom:-320px;box-shadow:0 0 0 60px rgba(255,255,255,.025),0 0 0 120px rgba(255,255,255,.018)}
+    .privacy-grid{display:grid;grid-template-columns:1fr 1fr;gap:90px;align-items:center;position:relative;z-index:2}.privacy h2{color:var(--cream)}.privacy-copy>p{font-size:18px;color:rgba(255,250,241,.68);max-width:570px}.privacy-list{display:grid;gap:12px}.privacy-item{display:flex;gap:17px;align-items:flex-start;border:1px solid var(--night-line);border-radius:16px;padding:19px 20px;background:rgba(255,255,255,.035)}.privacy-item b{display:block;margin-bottom:3px}.privacy-item span{color:rgba(255,250,241,.62);font-size:14px}.privacy-icon{width:36px;height:36px;flex:0 0 auto;border-radius:12px;background:rgba(199,240,217,.16);display:grid;place-items:center;color:var(--mint)}
+    .support{background:#ecd8cf}.support-grid{display:grid;grid-template-columns:.88fr 1.12fr;gap:80px;align-items:center}.support-art{min-height:500px;border-radius:var(--radius-lg);background:linear-gradient(145deg,#f7b199,#dd7e66);position:relative;overflow:hidden;display:grid;place-items:center}.support-art::before{content:"";position:absolute;width:340px;height:340px;border-radius:50%;background:rgba(255,250,241,.45);box-shadow:0 0 0 54px rgba(255,250,241,.12)}.companion-card{width:min(360px,80%);background:var(--cream);border-radius:22px;padding:24px;position:relative;box-shadow:var(--shadow)}.companion-card small{font-weight:800;color:var(--pine);text-transform:uppercase;letter-spacing:.1em}.companion-card p{font:500 25px/1.28 Georgia,"Times New Roman",serif;letter-spacing:-.025em;margin:16px 0 20px}.reply{background:var(--mint);border-radius:14px;padding:13px 15px;font-size:13px;color:#315449}.support-copy h2{max-width:650px}.support-copy>p{font-size:18px;color:#5f514d;max-width:590px}.mini-points{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:34px}.mini-points b{display:block;margin-bottom:4px}.mini-points span{font-size:14px;color:#6c5c57}
+    .pricing{background:var(--paper)}.pricing-wrap{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}.pricing-copy p{font-size:18px;color:var(--muted);max-width:590px}.price-card{border-radius:var(--radius-lg);background:var(--cream);border:1px solid var(--line);padding:42px;box-shadow:var(--shadow);position:relative;overflow:hidden}.price-card::before{content:"";position:absolute;right:-75px;top:-75px;width:190px;height:190px;border-radius:50%;background:var(--mint)}.plan{font-size:14px;font-weight:800;color:var(--pine);position:relative}.price{font:500 70px/1 Georgia,"Times New Roman",serif;letter-spacing:-.06em;margin:15px 0 27px}.price span{font:600 14px Arial,sans-serif;letter-spacing:0;color:var(--muted)}.features{list-style:none;padding:0;margin:0 0 30px;display:grid;gap:13px}.features li{display:flex;gap:11px;align-items:flex-start}.features li::before{content:"";width:22px;height:22px;flex:0 0 auto;border-radius:50%;background-color:var(--mint);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cpath d='m7 11 2.5 2.5L15 8' fill='none' stroke='%2314231f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}.wide{width:100%}.price-card .button-primary{background:var(--night);color:var(--cream)}.price-card .button-primary:hover{background:var(--pine)}.legal{font-size:12px;color:var(--muted);margin:18px 0 0}
+    footer{background:#091713;color:rgba(255,250,241,.65);padding:58px 0}.footer-row{display:flex;justify-content:space-between;gap:28px;align-items:flex-end}.footer-brand{color:var(--cream);font:700 28px/1 Georgia,"Times New Roman",serif}.footer-brand+p{margin:8px 0 0;font-size:13px}.footer-links{display:flex;gap:24px;font-size:13px}.footer-links a:hover{color:white}
+    @media(max-width:1100px){.navlinks{gap:18px;font-size:13px}.sign-in{padding:9px 14px}.hero{grid-template-columns:1fr;gap:30px;padding-top:74px}.hero-copy{text-align:center}.hero-copy .kicker,.actions{justify-content:center}.hero-copy>p{margin-inline:auto}.visual{min-height:500px}.trust-row{grid-template-columns:1fr 1fr;padding-block:24px}.privacy-grid,.support-grid,.pricing-wrap{grid-template-columns:1fr;gap:55px}.support-art{order:2}.pricing-copy{max-width:720px}.steps{grid-template-columns:1fr}.step{min-height:280px}.step-icon{height:90px}}
+    @media(max-width:740px){.navlinks a:not(.sign-in){display:none}}
+    @media(max-width:620px){.shell{width:min(100% - 32px,1240px)}nav{height:74px}.brand{font-size:21px}.sign-in{padding:8px 13px}.hero{min-height:auto;padding:62px 0 76px}.hero h1{font-size:54px}.hero-copy>p{font-size:17px}.button{width:100%}.visual{min-height:420px}.halo{width:390px;max-width:110%}.device{width:270px;height:405px;border-radius:34px}.device-top{height:52px}.screen{padding:19px 16px}.screen h2{font-size:27px;margin-bottom:16px}.protected{padding:15px}.protected strong{font-size:30px}.privacy-chip{left:2px;bottom:34px}.trust-row{grid-template-columns:1fr;gap:14px;padding-block:28px}.trust-title{margin-bottom:5px}section{padding:78px 0}.section-head{margin-bottom:40px}h2{font-size:43px}.step{min-height:0;padding:24px}.privacy-grid{gap:40px}.support-art{min-height:410px;border-radius:26px}.companion-card{width:86%;padding:20px}.mini-points{grid-template-columns:1fr}.price-card{padding:28px 22px;border-radius:26px}.price{font-size:61px}.footer-row{display:block}.footer-links{margin-top:30px;flex-wrap:wrap}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
+  </style>
 </head>
 <body>
-
-<header>
-  <div class="logo">FilterSight</div>
-  <nav>
-    <a href="founder-story.html">Our Story</a>
-    <a href="#how">How it works</a>
-    <a href="mission.html">Mission</a>
-    <a href="#pricing">Pricing</a>
-    <a href="https://signup-app-v3-production.up.railway.app/?view=member">Member sign in</a>
-  </nav>
-</header>
-
-<div class="hero">
-  <div class="eyebrow">A quieter kind of accountability</div>
-  <h1 class="display">Fight for a better you.</h1>
-  <p class="sub">Private DNS filtering that blocks adult sites across your devices, plus a calm AI companion whenever you need support.</p>
-  <a href="#pricing" class="cta">Get started</a>
-  <div class="cta-note">Takes five minutes to set up. Cancel anytime.</div>
-</div>
-
-<div class="horizon"></div>
-
-<section id="how">
-  <div class="eyebrow">How it works</div>
-  <h2 class="display" style="font-size:1.8rem; margin-top:10px;">Three steps, five minutes</h2>
-  <div class="how">
-    <div class="step">
-      <div class="label">01 — Install</div>
-      <p>Download your profile and install it once, right from Safari. No app to manage, no password to remember.</p>
-    </div>
-    <div class="step">
-      <div class="label">02 — Filter</div>
-      <p>Your device uses a NextDNS profile to block domains in the adult-content category before they load.</p>
-    </div>
-    <div class="step">
-      <div class="label">03 — Get support</div>
-      <p>Open your dashboard for a structured check-in, a short reset, or a calm conversation whenever you need support.</p>
-    </div>
+  <div class="top">
+    <nav class="shell" aria-label="Main navigation">
+      <a class="brand" href="#top" aria-label="FilterSight home"><span class="brand-mark" aria-hidden="true"></span>FilterSight</a>
+      <div class="navlinks">
+        <a href="https://filtersight.com/founder-story.html">Our story</a>
+        <a href="#how">How it works</a>
+        <a href="https://filtersight.com/mission.html">Mission</a>
+        <a href="#pricing">Pricing</a>
+        <a class="sign-in" href="https://signup-app-v3-production.up.railway.app/?view=member">Member sign in</a>
+      </div>
+    </nav>
+    <main id="top">
+      <section class="hero shell">
+        <div class="hero-copy">
+          <div class="kicker">A quieter kind of accountability</div>
+          <h1 class="serif">Make space for a better you.</h1>
+          <p>Private DNS filtering blocks adult sites across your devices, while a calm AI companion is there whenever you need support.</p>
+          <div class="actions"><a class="button button-primary" href="#pricing">Start FilterSight</a><a class="button button-quiet" href="#how">See how it works</a></div>
+          <p class="fine">Five-minute setup · No browsing logs · Cancel anytime</p>
+        </div>
+        <div class="visual" aria-label="Illustration of the FilterSight member dashboard">
+          <div class="halo"></div>
+          <div class="device">
+            <div class="device-top"><span class="mini-brand">FilterSight</span><span class="dot" aria-label="Protection active"></span></div>
+            <div class="screen"><small>Today</small><h2>You're protected.</h2><div class="protected"><div class="protected-head"><span>DNS filter</span><span>Active</span></div><strong>On</strong><div class="bar"><span></span></div></div><div class="chat"><div class="chat-label"><i></i>Quiet support</div><div class="bubble">Take a breath. What would help you move through this moment?</div></div></div>
+          </div>
+          <div class="privacy-chip"><span class="lock">◆</span>Browsing activity isn't recorded</div>
+        </div>
+      </section>
+    </main>
   </div>
-</section>
 
-<section id="pricing">
-  <div class="eyebrow">Pricing</div>
-  <h2 class="display" style="font-size:1.8rem; margin-top:10px; margin-bottom:10px;">One private plan. Everything included.</h2>
-  <div class="pricing">
-    <div class="plan featured">
-      <h3>FilterSight</h3>
-      <div class="price">$10<span>/mo</span></div>
-      <ul>
-        <li>Blocks known adult websites and domains at the DNS level, before they load.</li>
-        <li>One profile covers your devices — install once, no app to manage.</li>
-        <li>A narrow-purpose AI companion in your dashboard for moments when you want support.</li>
-        <li>DNS query logging stays disabled — your browsing activity isn't recorded.</li>
-        <li>No partner monitors your browsing activity.</li>
-      </ul>
-      <a href="https://signup-app-v3-production.up.railway.app" class="cta">Start FilterSight</a>
+  <div class="trust"><div class="shell trust-row"><div class="trust-title">Protection without surveillance.</div><div class="trust-point"><span class="check">✓</span>No DNS query logs</div><div class="trust-point"><span class="check">✓</span>No accountability partner</div><div class="trust-point"><span class="check">✓</span>No app to manage</div></div></div>
+
+  <section id="how">
+    <div class="shell">
+      <div class="section-head"><div class="label">How it works</div><h2 class="serif">Three steps.<br>Five minutes.</h2><p>Set up your private filter once, then use your member space whenever you want a reset or a little support.</p></div>
+      <div class="steps">
+        <article class="step"><span class="step-num">01 — Install</span><div class="step-icon"><span class="glyph" aria-hidden="true">↙</span></div><h3>Install once.</h3><p>Download your profile and install it directly from Safari. There’s no separate app or password to remember.</p></article>
+        <article class="step"><span class="step-num">02 — Filter</span><div class="step-icon"><span class="glyph" aria-hidden="true">◇</span></div><h3>Block before it loads.</h3><p>Your device uses a NextDNS profile to block domains in the adult-content category before they reach your screen.</p></article>
+        <article class="step"><span class="step-num">03 — Get support</span><div class="step-icon"><span class="glyph" aria-hidden="true">◌</span></div><h3>Meet the moment.</h3><p>Open your dashboard for a structured check-in, a short reset, or a calm conversation whenever you need support.</p></article>
+      </div>
     </div>
-  </div>
-  <p style="font-size:0.82rem; color:#8A9298; margin-top:14px; text-align:center;">
-    Your DNS queries aren't logged, and companion conversations are processed only to generate replies. We don't sell your information.
-    $10/month. Cancel anytime from your member dashboard. Your plan stays active until the end of the billing period, and there's no cancellation fee.
-  </p>
-</section>
+  </section>
 
-<footer>
-  <div>© 2026 FilterSight</div>
-  <div>
-    <a href="mailto:support@filtersight.com">support@filtersight.com</a>
-    <a href="terms.html">Terms</a>
-    <a href="privacy.html">Privacy</a>
-  </div>
-</footer>
+  <section class="privacy">
+    <div class="shell privacy-grid">
+      <div class="privacy-copy"><div class="kicker">Privacy by default</div><h2 class="serif">Your private life stays private.</h2><p>FilterSight is designed to help without turning your browsing into someone else’s report.</p></div>
+      <div class="privacy-list">
+        <div class="privacy-item"><span class="privacy-icon" aria-hidden="true">◇</span><div><b>DNS logging stays off</b><span>Your browsing activity isn’t recorded.</span></div></div>
+        <div class="privacy-item"><span class="privacy-icon" aria-hidden="true">○</span><div><b>No partner monitoring</b><span>You don’t need to hand your activity to another person.</span></div></div>
+        <div class="privacy-item"><span class="privacy-icon" aria-hidden="true">✦</span><div><b>Purpose-limited conversations</b><span>Companion conversations are processed only to generate replies.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="support">
+    <div class="shell support-grid">
+      <div class="support-art" aria-label="Illustration of a calm support conversation"><div class="companion-card"><small>A short reset</small><p>“You don't have to solve everything right now.”</p><div class="reply">Let’s focus on the next five minutes.</div></div></div>
+      <div class="support-copy"><div class="label">Support when you want it</div><h2 class="serif">A calm place to pause.</h2><p>The companion is narrow-purpose support for the moments when you want to check in, reset, or talk through what’s happening—without judgment.</p><div class="mini-points"><div><b>Structured check-ins</b><span>A clear prompt when you need direction.</span></div><div><b>Available in your dashboard</b><span>Open it when you want support.</span></div></div></div>
+    </div>
+  </section>
+
+  <section class="pricing" id="pricing">
+    <div class="shell pricing-wrap">
+      <div class="pricing-copy"><div class="label">Simple pricing</div><h2 class="serif">One private plan. Everything included.</h2><p>Protection across your devices, access to your member dashboard, and calm AI support in one straightforward membership.</p></div>
+      <div class="price-card"><div class="plan">FILTERSIGHT MEMBERSHIP</div><div class="price">$10 <span>/ month</span></div><ul class="features"><li>DNS-level blocking before adult sites load</li><li>One profile across your devices</li><li>AI companion access in your dashboard</li><li>DNS query logging disabled</li><li>No partner monitoring your activity</li></ul><a class="button button-primary wide" href="https://signup-app-v3-production.up.railway.app/">Start FilterSight</a><p class="legal">Cancel anytime from your member dashboard. Your plan stays active until the end of the billing period. No cancellation fee.</p></div>
+    </div>
+  </section>
+
+  <footer><div class="shell footer-row"><div><div class="footer-brand">FilterSight</div><p>© 2026 FilterSight</p></div><div class="footer-links"><a href="mailto:support@filtersight.com">support@filtersight.com</a><a href="https://filtersight.com/terms.html">Terms</a><a href="https://filtersight.com/privacy.html">Privacy</a></div></div></footer>
 </body>
 </html>
