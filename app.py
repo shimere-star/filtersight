@@ -83,6 +83,11 @@ st.markdown(
     background:#FFFFFF !important; color:var(--fs-ink) !important;
 }
 div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; }
+[data-testid="stChatMessage"],
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
+[data-testid="stChatMessage"] p {
+    color:var(--fs-ink) !important;
+}
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
       overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
     @media (max-width:480px) {
