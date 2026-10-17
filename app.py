@@ -6,6 +6,7 @@ import json
 import requests
 import logging
 import time
+from html import escape
 
 from companion_flow import (
     CHECKIN_OPTIONS,
@@ -1160,6 +1161,241 @@ def render_checkin_flow(headers):
             st.rerun()
 
 
+def sign_out_member(headers):
+    try:
+        requests.post(f"{BACKEND_URL}/member/logout", headers=headers, timeout=10)
+    except requests.RequestException:
+        pass
+    st.session_state.pop("member_access_token", None)
+    st.session_state.pop("member_chat_history", None)
+    st.session_state.pop("member_screen", None)
+    clear_checkin_state()
+    clear_journal_state()
+    st.rerun()
+
+
+def render_dashboard_home(profile, headers):
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            min-height:100svh;
+            background:
+                radial-gradient(ellipse at 3% 98%, rgba(53,112,88,.18), transparent 32%),
+                radial-gradient(ellipse at 96% 12%, rgba(32,91,72,.14), transparent 34%),
+                linear-gradient(145deg,#061D18 0%,#0A2A22 58%,#071E19 100%) !important;
+            color:#F7F5ED;
+        }
+        header[data-testid="stHeader"] { background:transparent !important; }
+        .main .block-container {
+            width:min(100% - 2rem,1040px);
+            max-width:1040px;
+            padding:1rem 0 3.5rem;
+        }
+        .dashboard-brandbar {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:1rem;
+            margin-bottom:1.25rem;
+            padding:.72rem .9rem;
+            border:1px solid rgba(213,235,224,.16);
+            border-radius:16px;
+            background:rgba(5,31,24,.64);
+            box-shadow:0 12px 34px rgba(0,0,0,.16);
+            backdrop-filter:blur(14px);
+        }
+        .dashboard-brand {
+            display:flex;
+            align-items:center;
+            gap:.72rem;
+            color:#FFF9EF;
+            font-size:1.12rem;
+            font-weight:800;
+        }
+        .dashboard-mark {
+            width:42px; height:42px;
+            display:grid; place-items:center;
+            border-radius:50%;
+            background:#F07D63;
+            color:#FFF9EF;
+            font-family:Georgia,"Times New Roman",serif;
+            font-size:1.05rem;
+            box-shadow:0 0 0 4px rgba(240,125,99,.1);
+        }
+        .dashboard-email {
+            max-width:50%;
+            overflow:hidden;
+            color:#D8E6DF;
+            font-size:.88rem;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            margin-bottom:.4rem;
+            border:1px solid rgba(203,229,216,.24) !important;
+            border-radius:18px !important;
+            background:linear-gradient(135deg,rgba(246,251,247,.07),rgba(246,251,247,.025)) !important;
+            box-shadow:0 12px 34px rgba(0,0,0,.13);
+            backdrop-filter:blur(12px);
+        }
+        [data-testid="stVerticalBlockBorderWrapper"] > div {
+            padding:clamp(.35rem,1vw,.8rem) clamp(.25rem,1.5vw,.85rem) !important;
+        }
+        .dashboard-hero h1 {
+            margin:.05rem 0 .85rem;
+            color:#FFF9EF !important;
+            font-family:Georgia,"Times New Roman",serif;
+            font-size:clamp(2.1rem,5.4vw,3.25rem);
+            line-height:1.04;
+            letter-spacing:-.035em;
+        }
+        .dashboard-status {
+            display:flex;
+            align-items:center;
+            gap:.65rem;
+            padding:.85rem 1rem;
+            border-radius:13px;
+            background:linear-gradient(105deg,#BCE3CE,#A8D7BF);
+            color:#112A22;
+            font-size:.92rem;
+        }
+        .dashboard-status::before {
+            content:"✓";
+            width:24px; height:24px;
+            display:grid; place-items:center;
+            flex:0 0 auto;
+            border:1.5px solid #173C31;
+            border-radius:50%;
+            font-weight:900;
+        }
+        .dashboard-card-heading {
+            margin:.1rem 0 .2rem;
+            color:#FFF9EF;
+            font-family:Georgia,"Times New Roman",serif;
+            font-size:clamp(1.55rem,3.5vw,2rem);
+            line-height:1.15;
+        }
+        .dashboard-card-copy {
+            max-width:610px;
+            margin:0 0 .45rem;
+            color:#C2D4CB;
+            font-size:.94rem;
+            line-height:1.52;
+        }
+        .dashboard-lock-note {
+            display:flex;
+            align-items:center;
+            gap:.42rem;
+            color:#9FC8B5;
+            font-size:.76rem;
+        }
+        .dashboard-lock-note::before { content:"▣"; }
+        div[data-testid="stButton"] button {
+            min-height:48px;
+            border:1px solid rgba(210,234,221,.28) !important;
+            border-radius:10px !important;
+            background:rgba(18,78,63,.72) !important;
+            color:#FFF9EF !important;
+            box-shadow:none !important;
+            font-weight:750;
+        }
+        div[data-testid="stButton"] button[kind="primary"] {
+            border-color:#F07D63 !important;
+            background:linear-gradient(135deg,#F2715F,#E55E51) !important;
+            box-shadow:0 8px 20px rgba(226,91,77,.18) !important;
+        }
+        div[data-testid="stButton"] button:hover {
+            border-color:rgba(232,245,237,.56) !important;
+            transform:translateY(-1px);
+        }
+        div[data-testid="stButton"] button:focus-visible {
+            outline:3px solid #F8B3A4 !important;
+            outline-offset:3px;
+        }
+        [data-testid="stExpander"] {
+            border:1px solid rgba(210,234,221,.2) !important;
+            border-radius:12px !important;
+            background:rgba(3,25,19,.28) !important;
+            box-shadow:none !important;
+        }
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] p { color:#D7E5DE !important; }
+        @media(max-width:620px) {
+            .main .block-container { width:calc(100% - 1.15rem); padding-top:.55rem; }
+            .dashboard-brandbar { margin-bottom:.8rem; padding:.62rem .7rem; }
+            .dashboard-mark { width:38px; height:38px; }
+            .dashboard-email { max-width:48%; font-size:.78rem; }
+            [data-testid="stVerticalBlockBorderWrapper"] { border-radius:15px !important; }
+            .dashboard-hero h1 { font-size:2.25rem; }
+            .dashboard-card-copy { font-size:.88rem; }
+            div[data-testid="stButton"] button { min-height:46px; }
+        }
+        @media(prefers-reduced-motion:reduce) {
+            *, *::before, *::after { transition:none !important; }
+        }
+        </style>
+        <nav class="dashboard-brandbar" aria-label="FilterSight account">
+            <div class="dashboard-brand"><span class="dashboard-mark" aria-hidden="true">FS</span>FilterSight</div>
+            <div class="dashboard-email">{email}</div>
+        </nav>
+        """.replace("{email}", escape(profile["email"])),
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <section class="dashboard-hero" aria-labelledby="dashboard-title">
+                <h1 id="dashboard-title">Your FilterSight dashboard</h1>
+                <div class="dashboard-status">Signed in as {escape(profile['email'])} · FilterSight</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+        if profile["cancel_at_period_end"]:
+            st.info("Your subscription is set to end at the close of the current billing period. No cancellation fee is charged.")
+        else:
+            with st.expander("Manage subscription"):
+                st.write("Your plan stays active through the current billing period. Canceling has no fee.")
+                if st.button("Cancel my subscription", key="dashboard_cancel"):
+                    try:
+                        response = requests.post(f"{BACKEND_URL}/member/cancel", headers=headers, timeout=15)
+                        response.raise_for_status()
+                        st.success("Cancellation scheduled for the end of your current billing period. No fee was charged.")
+                        st.rerun()
+                    except requests.RequestException:
+                        st.error("We couldn't schedule cancellation right now. Please try again.")
+
+    with st.container(border=True):
+        st.markdown(
+            '<h2 class="dashboard-card-heading">Support in the moment</h2>'
+            '<p class="dashboard-card-copy">Quick ways to pause, reflect, and feel supported right now.</p>',
+            unsafe_allow_html=True,
+        )
+        checkin_column, chat_column, spacer = st.columns([1, 1, 1.8])
+        with checkin_column:
+            if st.button("Check in", type="primary", use_container_width=True):
+                go_to_checkin("checkin")
+        with chat_column:
+            if st.button("Talk it through", use_container_width=True):
+                go_to_checkin("chat")
+
+    with st.container(border=True):
+        st.markdown(
+            '<h2 class="dashboard-card-heading">Private journal</h2>'
+            '<p class="dashboard-card-copy">Your encrypted space for goals, reflections, and what matters most.</p>'
+            '<p class="dashboard-lock-note">Only you can read it.</p>',
+            unsafe_allow_html=True,
+        )
+        journal_column, spacer = st.columns([1.25, 2.75])
+        with journal_column:
+            if st.button("Open private journal", use_container_width=True):
+                go_to_member_screen("journal")
+        if st.button("Sign out", key="dashboard_sign_out"):
+            sign_out_member(headers)
+
+
 def render_member_dashboard():
     token = st.session_state.get("member_access_token")
     if not token:
@@ -1206,9 +1442,6 @@ def render_member_dashboard():
                     st.error("We couldn't reach account sign-in. Please try again later.")
         return
 
-    if not st.session_state.get("checkin_screen") and st.session_state.get("member_screen") != "journal":
-        st.title("Your FilterSight dashboard")
-
     headers = {"Authorization": f"Bearer {token}"}
     try:
         response = requests.get(f"{BACKEND_URL}/member/profile", headers=headers, timeout=15)
@@ -1223,6 +1456,10 @@ def render_member_dashboard():
     # Account controls remain one step away via the persistent back button.
     if st.session_state.get("checkin_screen") == "chat":
         render_companion(headers)
+        return
+
+    if not st.session_state.get("checkin_screen") and st.session_state.get("member_screen") != "journal":
+        render_dashboard_home(profile, headers)
         return
 
     st.success(f"Signed in as {profile['email']} · FilterSight")
@@ -1259,16 +1496,7 @@ def render_member_dashboard():
             go_to_member_screen("journal")
 
     if st.button("Sign out"):
-        try:
-            requests.post(f"{BACKEND_URL}/member/logout", headers=headers, timeout=10)
-        except requests.RequestException:
-            pass
-        st.session_state.pop("member_access_token", None)
-        st.session_state.pop("member_chat_history", None)
-        st.session_state.pop("member_screen", None)
-        clear_checkin_state()
-        clear_journal_state()
-        st.rerun()
+        sign_out_member(headers)
 
 # ---------------------------------------------------------------------------
 # STEP 1: Send the customer to real Stripe Checkout
