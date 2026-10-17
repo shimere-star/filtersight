@@ -879,11 +879,32 @@ class LaunchPlanTests(unittest.TestCase):
             {"member_chat_history": [{"role": "assistant", "content": "I'm here. What's on your mind?"}]},
         )
         with patch("requests.get", return_value=profile_response):
-            next(button for button in app.button if button.label == "End conversation").click().run()
+            next(button for button in app.button if button.label == "End private chat").click().run()
 
         visible = " ".join(item.value for item in app.markdown)
         self.assertIn("Thanks for talking it through. You can come back anytime.", visible)
         self.assertIn("Done", [button.label for button in app.button])
+
+    def test_companion_has_a_nondestructive_back_route(self):
+        """Leaving the immersive chat keeps its session history available."""
+        history = [{"role": "assistant", "content": "I'm here. What's on your mind?"}]
+        app, profile_response = self._member_app(
+            "chat", {"member_chat_history": history}
+        )
+
+        labels = [button.label for button in app.button]
+        self.assertIn("← Back to dashboard", labels)
+        self.assertIn("I need help now", labels)
+
+        with patch("requests.get", return_value=profile_response):
+            next(
+                button for button in app.button
+                if button.label == "← Back to dashboard"
+            ).click().run()
+
+        self.assertNotIn("checkin_screen", app.session_state)
+        self.assertEqual(app.session_state["member_chat_history"], history)
+        self.assertIn("Talk it through", [button.label for button in app.button])
 
 
 if __name__ == "__main__":
