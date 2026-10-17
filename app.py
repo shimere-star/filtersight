@@ -687,19 +687,61 @@ def render_numbered_steps(steps):
 
 
 def render_companion(headers):
+    if st.button("← Back to dashboard", key="companion_back"):
+        clear_checkin_state()
+        st.rerun()
+
     st.markdown(
         """
         <style>
+        .stApp {
+            min-height:100svh;
+            background:
+                radial-gradient(circle at 18% 24%, rgba(104,165,137,.08) 0 1px, transparent 2px),
+                radial-gradient(circle at 78% 64%, rgba(240,138,114,.055) 0 1px, transparent 2px),
+                linear-gradient(145deg,#071E18 0%,#0A2A21 54%,#061A16 100%) !important;
+            background-size:42px 42px, 54px 54px, auto;
+        }
+        header[data-testid="stHeader"] {
+            background:transparent !important;
+        }
+        .main .block-container {
+            width:min(100% - 2rem, 1080px);
+            max-width:1080px;
+            min-height:calc(100svh - 1rem);
+            padding:clamp(.75rem,2vw,1.5rem) 0 8.75rem;
+        }
+        [data-testid="stMainBlockContainer"] > div:first-child {
+            gap:.65rem;
+        }
+        div[data-testid="stButton"] button {
+            min-height:44px;
+            border:1px solid rgba(236,248,240,.25) !important;
+            border-radius:999px !important;
+            background:rgba(244,249,244,.08) !important;
+            color:#F8F5EC !important;
+            box-shadow:none !important;
+            font-weight:700;
+        }
+        div[data-testid="stButton"] button:hover {
+            border-color:rgba(236,248,240,.52) !important;
+            background:rgba(244,249,244,.14) !important;
+        }
+        div[data-testid="stButton"] button:focus-visible {
+            outline:3px solid #F08A72 !important;
+            outline-offset:3px;
+        }
         .companion-header {
             display:flex;
             align-items:center;
             gap:1rem;
-            margin:.3rem 0 .8rem;
-            padding:1.15rem 1.25rem;
+            margin:.1rem 0 clamp(1.5rem,5vh,3.75rem);
+            padding:1.1rem clamp(1rem,3vw,1.75rem);
             border:1px solid rgba(183,220,198,.28);
-            border-radius:20px;
-            background:linear-gradient(145deg,#102821 0%,#183D32 100%);
-            box-shadow:0 16px 40px rgba(15,39,32,.16);
+            border-radius:22px;
+            background:linear-gradient(110deg,rgba(11,45,36,.96),rgba(20,73,58,.94));
+            box-shadow:0 18px 48px rgba(0,0,0,.22);
+            backdrop-filter:blur(16px);
         }
         .companion-avatar {
             position:relative;
@@ -728,7 +770,7 @@ def render_companion(headers):
             margin:0 0 .18rem;
             color:#FFF9EF !important;
             font-family:Georgia,"Times New Roman",serif;
-            font-size:1.55rem;
+            font-size:clamp(1.35rem,3vw,2rem);
             letter-spacing:-.02em;
         }
         .companion-heading p {
@@ -738,37 +780,47 @@ def render_companion(headers):
         }
         .companion-private {
             flex:0 0 auto;
-            padding:.42rem .7rem;
+            display:inline-flex;
+            align-items:center;
+            gap:.45rem;
+            padding:.55rem .8rem;
             border:1px solid rgba(190,226,206,.3);
             border-radius:999px;
             color:#DDF2E6;
             font-size:.75rem;
             font-weight:700;
         }
+        .companion-private::before {
+            content:"";
+            width:8px; height:8px;
+            border-radius:50%;
+            background:#70DA92;
+            box-shadow:0 0 0 3px rgba(112,218,146,.12);
+        }
         .companion-intro {
-            margin:0 0 1rem;
-            padding:.85rem 1rem;
-            border:1px solid #D7E5DD;
-            border-radius:13px;
-            background:#F0F7F3;
-            color:#3D564C;
-            font-size:.88rem;
+            margin:0 0 .45rem;
+            padding:.8rem 1rem;
+            border:1px solid rgba(211,235,221,.18);
+            border-radius:14px;
+            background:rgba(237,247,240,.08);
+            color:#C8DBD2;
+            font-size:.84rem;
             line-height:1.5;
         }
-        .companion-intro strong { color:#173C31; }
+        .companion-intro strong { color:#FFF9EF; }
         [data-testid="stChatMessage"] {
             align-items:flex-end;
-            gap:.55rem;
-            padding:.32rem 0;
+            gap:.75rem;
+            padding:.55rem 0;
             background:transparent !important;
         }
         [data-testid="stChatMessageContent"] {
-            max-width:78%;
-            padding:.8rem 1rem;
-            border:1px solid #DCE4DF;
-            border-radius:18px 18px 18px 5px;
-            background:#FFFFFF;
-            box-shadow:0 4px 14px rgba(18,45,37,.06);
+            max-width:min(76%,720px);
+            padding:.9rem 1.15rem;
+            border:1px solid rgba(244,241,230,.78);
+            border-radius:24px 24px 24px 7px;
+            background:linear-gradient(145deg,#FBFAF5,#F2F0E8);
+            box-shadow:0 10px 28px rgba(0,0,0,.14);
         }
         [data-testid="stChatMessageContent"] p {
             margin:0;
@@ -779,22 +831,25 @@ def render_companion(headers):
             flex-direction:row-reverse;
         }
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] {
-            border-color:#1F5A49;
-            border-radius:18px 18px 5px 18px;
-            background:#1F5A49;
-            box-shadow:0 5px 16px rgba(31,90,73,.16);
+            border-color:#2C715E;
+            border-radius:24px 24px 7px 24px;
+            background:linear-gradient(145deg,#2D725F,#205B4C);
+            box-shadow:0 10px 26px rgba(0,0,0,.17);
         }
         [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"] p {
             color:#FFFFFF !important;
         }
         [data-testid="stChatMessageAvatarAssistant"],
         [data-testid="stChatMessageAvatarUser"] {
-            width:34px;
-            height:34px;
-            border-radius:11px;
+            width:42px;
+            height:42px;
+            border-radius:50%;
         }
-        [data-testid="stChatMessageAvatarAssistant"] { background:#F08A72; }
-        [data-testid="stChatMessageAvatarUser"] { background:#CDEAD9; }
+        [data-testid="stChatMessageAvatarAssistant"] {
+            background:#F07D63;
+            box-shadow:0 0 0 4px rgba(240,125,99,.13);
+        }
+        [data-testid="stChatMessageAvatarUser"] { display:none; }
         [data-testid="stChatInput"],
         [data-testid="stChatInput"] > div,
         [data-testid="stChatInput"] div[data-baseweb="textarea"] {
@@ -803,9 +858,9 @@ def render_companion(headers):
         }
         [data-testid="stChatInput"] {
             overflow:hidden;
-            border:1px solid #B8C9C0 !important;
-            border-radius:18px !important;
-            box-shadow:0 10px 28px rgba(18,45,37,.12);
+            border:1px solid rgba(255,255,255,.78) !important;
+            border-radius:26px !important;
+            box-shadow:0 16px 42px rgba(0,0,0,.28);
         }
         [data-testid="stChatInput"] textarea {
             background:#FFFFFF !important;
@@ -819,27 +874,65 @@ def render_companion(headers):
             opacity:1;
         }
         [data-testid="stChatInput"] button {
-            background:#1F5A49 !important;
+            width:42px;
+            height:42px;
+            margin:.3rem;
+            border-radius:50% !important;
+            background:#F07D63 !important;
             color:#FFFFFF !important;
         }
         [data-testid="stBottom"],
         [data-testid="stBottomBlockContainer"],
         .stBottomBlockContainer {
-            padding-top:.75rem;
-            background:#F7F8F7 !important;
+            width:min(100% - 2rem,1080px) !important;
+            margin-inline:auto !important;
+            padding:.8rem 0 max(1rem,env(safe-area-inset-bottom)) !important;
+            background:linear-gradient(180deg,rgba(6,26,22,0),#061A16 34%) !important;
         }
         .companion-controls {
-            margin:1.25rem 0 .4rem;
+            margin:1.6rem 0 .35rem;
             padding-top:1rem;
-            border-top:1px solid #DCE4DF;
-            color:#68766F;
+            border-top:1px solid rgba(220,235,226,.18);
+            color:#AFC5BA;
             font-size:.82rem;
         }
+        [data-testid="stExpander"] {
+            border:1px solid rgba(220,235,226,.2) !important;
+            border-radius:16px !important;
+            background:rgba(244,249,244,.06) !important;
+            color:#F8F5EC !important;
+        }
+        [data-testid="stExpander"] summary,
+        [data-testid="stExpander"] p {
+            color:#DDE9E2 !important;
+        }
         @media (max-width:480px) {
-            .companion-header { padding:1rem; border-radius:16px; }
+            .main .block-container {
+                width:calc(100% - 1.25rem);
+                padding-top:.45rem;
+                padding-bottom:8rem;
+            }
+            .companion-header {
+                gap:.75rem;
+                margin-bottom:clamp(1.3rem,6vh,3rem);
+                padding:.9rem;
+                border-radius:17px;
+            }
             .companion-avatar { width:46px; height:46px; border-radius:14px; }
-            .companion-private { display:none; }
-            [data-testid="stChatMessageContent"] { max-width:84%; }
+            .companion-heading h1 { font-size:1.25rem; }
+            .companion-heading p { font-size:.76rem; }
+            .companion-private { padding:.5rem; font-size:0; }
+            .companion-private::before { width:10px; height:10px; }
+            .companion-intro { font-size:.78rem; }
+            [data-testid="stChatMessageContent"] { max-width:86%; padding:.78rem 1rem; }
+            [data-testid="stChatMessageAvatarAssistant"] { width:38px; height:38px; }
+            .stBottomBlockContainer { width:calc(100% - 1.25rem) !important; }
+        }
+        @media (min-width:900px) and (min-height:700px) {
+            [data-testid="stChatMessage"] { padding:.75rem 1.25rem; }
+        }
+        @media (prefers-reduced-motion:reduce) {
+            *, *::before, *::after { scroll-behavior:auto !important; transition:none !important; }
         }
         </style>
         <section class="companion-header" aria-labelledby="companion-title">
@@ -850,14 +943,13 @@ def render_companion(headers):
             </div>
             <span class="companion-private">Private session</span>
         </section>
-        <div class="companion-intro">
-            <strong>A calm place to talk.</strong> No judgment and no pressure—share as much or as little as you want.
-            Your message and recent conversation context are sent to Anthropic for a reply. FilterSight does not save this conversation in its database.
-        </div>
         """,
         unsafe_allow_html=True,
     )
-    render_help_action()
+    help_space, help_action = st.columns([1, .55])
+    with help_action:
+        if st.button("I need help now", key="companion_help", type="primary", use_container_width=True):
+            go_to_checkin("emergency")
     if "member_chat_history" not in st.session_state:
         st.session_state.member_chat_history = [{"role": "assistant", "content": "I'm here. What's on your mind?"}]
     for item in st.session_state.member_chat_history:
@@ -878,13 +970,19 @@ def render_companion(headers):
             reply = "I couldn't connect just now. Please try again in a moment."
         st.session_state.member_chat_history.append({"role": "assistant", "content": reply})
         st.rerun()
-    st.markdown(
-        '<div class="companion-controls">Ending this chat clears the conversation from your current session.</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("End private chat", use_container_width=True):
-        st.session_state.pop("member_chat_history", None)
-        go_to_checkin("chat_complete")
+    with st.expander("Privacy & session controls"):
+        st.markdown(
+            "**A calm place to talk.** No judgment and no pressure—share as much or as little as you want. "
+            "Your message and recent conversation context are sent to Anthropic for a reply. "
+            "FilterSight does not save this conversation in its database."
+        )
+        st.markdown(
+            '<div class="companion-controls">Ending this chat clears the conversation from your current session.</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("End private chat", use_container_width=True):
+            st.session_state.pop("member_chat_history", None)
+            go_to_checkin("chat_complete")
 
 
 def render_emergency():
@@ -1120,6 +1218,12 @@ def render_member_dashboard():
         st.session_state.pop("member_access_token", None)
         st.error("Your sign-in expired or your subscription could not be verified. Request a new link below.")
         st.rerun()
+
+    # The companion is intentionally an immersive, distraction-free screen.
+    # Account controls remain one step away via the persistent back button.
+    if st.session_state.get("checkin_screen") == "chat":
+        render_companion(headers)
+        return
 
     st.success(f"Signed in as {profile['email']} · FilterSight")
     if profile["cancel_at_period_end"]:
