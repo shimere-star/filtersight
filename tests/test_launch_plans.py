@@ -170,20 +170,22 @@ class LaunchPlanTests(unittest.TestCase):
         app, _ = self._journal_app()
 
         self.assertEqual(list(app.exception), [])
-        self.assertIn("Private journal", [title.value for title in app.title])
-        subheaders = [heading.value for heading in app.subheader]
-        self.assertIn("Your plan", subheaders)
-        self.assertIn("New journal entry", subheaders)
-        self.assertIn("Your entries", subheaders)
-        self.assertIn("Your journal data", subheaders)
+        visible = " ".join(item.value for item in app.markdown)
+        for heading in (
+            "Private journal",
+            "Your plan",
+            "Write a new entry",
+            "Past entries",
+            "Your journal data",
+        ):
+            self.assertIn(heading, visible)
         labels = [button.label for button in app.button]
-        self.assertIn("Back to dashboard", labels)
+        self.assertTrue(any("Back to dashboard" in label for label in labels))
         self.assertIn("Save plan", labels)
         self.assertIn("Save entry", labels)
         self.assertIn("Prepare JSON export", labels)
         self.assertIn("Delete all journal data", labels)
-        visible = " ".join(item.value for item in app.markdown)
-        self.assertIn("encrypted before it is stored", visible)
+        self.assertIn("encrypted before storage", visible)
         self.assertIn("No journal entries yet", visible)
 
     def test_member_dashboard_opens_private_journal(self):
@@ -194,7 +196,8 @@ class LaunchPlanTests(unittest.TestCase):
         with patch("requests.get", return_value=profile_response):
             next(button for button in app.button if button.label == "Open private journal").click().run()
 
-        self.assertIn("Private journal", [title.value for title in app.title])
+        visible = " ".join(item.value for item in app.markdown)
+        self.assertIn("Private journal", visible)
 
     def test_private_journal_saves_profile_and_note_only_entry(self):
         """Catches losing optional-field semantics between the UI and API."""
