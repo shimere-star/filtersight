@@ -362,6 +362,25 @@ class LaunchPlanTests(unittest.TestCase):
             ],
         )
 
+    def test_member_dashboard_renders_the_responsive_home_actions(self):
+        """Catches losing a primary member action during dashboard restyling."""
+        app, _ = self._member_app()
+
+        self.assertEqual(list(app.exception), [])
+        labels = [button.label for button in app.button]
+        for label in (
+            "Check in",
+            "Talk it through",
+            "Open private journal",
+            "Sign out",
+        ):
+            self.assertIn(label, labels)
+        visible = " ".join(item.value for item in app.markdown)
+        self.assertIn("Your FilterSight dashboard", visible)
+        self.assertIn("Support in the moment", visible)
+        self.assertIn("Private journal", visible)
+        self.assertIn("Only you can read it", visible)
+
     def test_intervention_menu_renders_all_required_choices(self):
         """Catches omitting a Phase 1 intervention from the member flow."""
         app, _ = self._member_app("interventions")
