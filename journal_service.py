@@ -142,6 +142,19 @@ class JournalService:
 
         return self._run(operation)
 
+    # -- daily progress ----------------------------------------------------
+    def progress_get(self, member):
+        return self._run(
+            lambda conn, cipher, now: _respond(200, store.list_daily_progress(conn, member, now))
+        )
+
+    def progress_update(self, member, day, raw_body):
+        def operation(conn, cipher, now):
+            changes = store.validate_progress_changes(store.parse_json_object(raw_body))
+            return _respond(200, store.upsert_daily_progress(conn, member, day, changes, now))
+
+        return self._run(operation)
+
     # -- whole-journal actions ---------------------------------------------
     def delete_all(self, member):
         def operation(conn, cipher, now):

@@ -18,12 +18,13 @@ The backend, member-facing Streamlit workspace, and matching Privacy/Terms copy 
 - Railway volume backups are outside this feature's control; deleted rows can persist in platform snapshots. Disclose in privacy copy.
 
 ## Schema (additive, `CREATE TABLE IF NOT EXISTS`, run from `get_db()`)
-`journal_profiles`, `journal_entries`, `journal_write_log`, `journal_retention`, `journal_meta`. No existing table is altered.
+`journal_profiles`, `journal_entries`, `journal_daily_progress`, `journal_write_log`, `journal_retention`, `journal_meta`. No existing table is altered.
 
 ## Endpoints (member Bearer session; prefix `/member/journal`)
 | Method | Path | Notes |
 |---|---|---|
 | GET/PATCH | `/profile` | PATCH: omitted = unchanged, null = clear. goal ≤500, why ≤1000, ≤3 coping actions ≤250 each. 10 updates/hr |
+| GET/PUT | `/progress`, `/progress/{day}` | Daily goal status, optional fixed social-confidence step, calendar and streak totals. 10 updates/hr |
 | GET | `/entries?limit=&cursor=` | newest first, limit default 20 max 50, opaque cursor, returns `next_cursor` |
 | POST | `/entries` | `category`, `action`, `note` (≤2000); at least one required. 20 writes/hr, max 500 entries (409) |
 | PATCH/DELETE | `/entries/{id}` | 404 for missing or other member's entry |
@@ -45,7 +46,7 @@ Errors: 422 `{"detail":[{"field","reason",...limit/allowed}]}` (never echoes inp
 - Hooks are wrapped so a journal failure cannot break billing/webhooks.
 
 ## Frontend
-The member dashboard links to a single-column private-journal workspace. It supports the personal goal and coping plan, note-only or categorized entries, newest-first entry editing/deletion, JSON export, and confirmed delete-all. It sends `Authorization: Bearer <member session token>`, treats 503 as temporarily unavailable, and tells members not to enter URLs or domains.
+The member dashboard links to a single-column private-journal workspace. It supports daily goals and a progress calendar, social-confidence steps, the personal goal and coping plan, note-only or categorized entries, newest-first entry editing/deletion, JSON export, and confirmed delete-all. It sends `Authorization: Bearer <member session token>`, treats 503 as temporarily unavailable, and tells members not to enter URLs or domains.
 
 ## Deploy prerequisites
 Set both `JOURNAL_ENCRYPTION_KEY` and a separate high-entropy `JOURNAL_ADMIN_SECRET` in Railway (not done here); `cryptography` is in `requirements.txt`. Back the encryption key up securely: losing it loses all journal data. The admin secret protects only the support deletion route and must not be reused for member or general admin access.

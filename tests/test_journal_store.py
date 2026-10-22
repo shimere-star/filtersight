@@ -578,7 +578,15 @@ class EntryTests(JournalTestCase):
         self.patch_profile(goal="goal", coping_actions=["walk"])
         response = self.call("delete_all", ALICE)
         self.assertEqual(response.status, 200)
-        self.assertEqual(response.body, {"status": "deleted", "entries_deleted": 2, "profile_deleted": True})
+        self.assertEqual(
+            response.body,
+            {
+                "status": "deleted",
+                "entries_deleted": 2,
+                "profile_deleted": True,
+                "progress_deleted": 0,
+            },
+        )
         self.assertEqual(self.count("journal_entries"), 0)
         self.assertEqual(self.count("journal_profiles"), 0)
         self.assertEqual(self.call("delete_all", ALICE).body["entries_deleted"], 0)
@@ -612,6 +620,67 @@ class EntryTests(JournalTestCase):
 # ===========================================================================
 # Isolation between members
 # ===========================================================================
+class DailyProgressTests(JournalTestCase):
+    def save(self, day, *, status="met_goal", social_completed=False):
+        return self.call(
+            "progress_update",
+            ALICE,
+            day,
+            json.dumps(
+                {
+                    "goal_type": "masturbation_free",
+                    "status": status,
+                    "social_goal": "short_conversation",
+                    "social_completed": social_completed,
+                }
+            ).encode(),
+        )
+
+    def test_calendar_streaks_reset_without_erasing_progress(self):
+        self.add_member(ALICE)
+        base_day = self.now.date()
+        for offset in (2, 1, 0):
+            day = (base_day - timedelta(days=offset)).isoformat()
+            self.now = datetime.fromisoformat(f"{day}T12:00:00+00:00")
+            self.assertEqual(self.save(day, social_completed=offset == 0).status, 200)
+
+        progress = self.call("progress_get", ALICE).body
+        self.assertEqual(progress["current_streak"], 3)
+        self.assertEqual(progress["best_streak"], 3)
+        self.assertEqual(progress["social_steps"], 1)
+
+        tomorrow = (self.now.date() + timedelta(days=1)).isoformat()
+        self.tick(days=1)
+        self.assertEqual(self.save(tomorrow, status="missed_goal").status, 200)
+        progress = self.call("progress_get", ALICE).body
+        self.assertEqual(progress["current_streak"], 0)
+        self.assertEqual(progress["best_streak"], 3)
+        self.assertEqual(progress["goal_days"], 3)
+
+    def test_progress_is_private_and_included_in_export_and_deletion(self):
+        self.add_member(ALICE)
+        today = self.now.date().isoformat()
+        self.save(today)
+        self.assertEqual(self.call("progress_get", BOB).body["days"], [])
+        exported = self.call("export", ALICE).body
+        self.assertEqual(exported["daily_progress"][0]["day"], today)
+        deleted = self.call("delete_all", ALICE).body
+        self.assertEqual(deleted["progress_deleted"], 1)
+        self.assertEqual(self.call("progress_get", ALICE).body["days"], [])
+
+    def test_progress_rejects_unknown_values_and_old_dates(self):
+        self.add_member(ALICE)
+        bad = self.call(
+            "progress_update",
+            ALICE,
+            self.now.date().isoformat(),
+            b'{"goal_type":"other","status":"met_goal"}',
+        )
+        self.assertEqual(bad.status, 422)
+        old = (self.now.date() - timedelta(days=3)).isoformat()
+        self.assertEqual(self.save(old).status, 422)
+
+
 class IsolationTests(JournalTestCase):
     def test_members_cannot_see_or_touch_each_others_data(self):
         self.patch_profile(ALICE, goal="alice goal", coping_actions=["alice coping"])
@@ -1301,6 +1370,7 @@ class MigrationTests(unittest.TestCase):
                     "idx_journal_entries_member_created",
                     "idx_journal_write_log_member",
                     "idx_journal_retention_due",
+                    "idx_journal_daily_progress_member_day",
                 },
             )
 

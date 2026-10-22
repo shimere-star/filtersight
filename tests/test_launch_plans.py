@@ -98,6 +98,15 @@ class LaunchPlanTests(unittest.TestCase):
             "limit": 50,
             "next_cursor": next_cursor,
         }
+        journal_progress = Mock()
+        journal_progress.raise_for_status.return_value = None
+        journal_progress.json.return_value = {
+            "days": [],
+            "current_streak": 0,
+            "best_streak": 0,
+            "goal_days": 0,
+            "social_steps": 0,
+        }
 
         def get(url, **_kwargs):
             if url.endswith("/member/profile"):
@@ -106,6 +115,8 @@ class LaunchPlanTests(unittest.TestCase):
                 return journal_profile
             if url.endswith("/member/journal/entries"):
                 return journal_entries
+            if url.endswith("/member/journal/progress"):
+                return journal_progress
             raise AssertionError(f"Unexpected GET: {url}")
 
         app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=20)
@@ -173,6 +184,7 @@ class LaunchPlanTests(unittest.TestCase):
         visible = " ".join(item.value for item in app.markdown)
         for heading in (
             "Private journal",
+            "Daily progress",
             "Your plan",
             "Write a new entry",
             "Past entries",
@@ -187,6 +199,40 @@ class LaunchPlanTests(unittest.TestCase):
         self.assertIn("Delete all journal data", labels)
         self.assertIn("encrypted before storage", visible)
         self.assertIn("No journal entries yet", visible)
+        self.assertIn("Save today's progress", labels)
+
+    def test_daily_progress_saves_personal_goal_and_social_attempt(self):
+        app, get = self._journal_app()
+        next(radio for radio in app.radio if radio.label == "How did today go?").set_value(
+            "met_goal"
+        )
+        next(
+            select for select in app.selectbox if select.label == "Today's personal goal"
+        ).set_value("masturbation_free")
+        next(
+            select for select in app.selectbox if select.label == "Optional social-confidence step"
+        ).set_value("short_conversation")
+        next(
+            checkbox for checkbox in app.checkbox if checkbox.label == "I attempted this step"
+        ).check()
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {}
+        with patch("requests.get", side_effect=get), patch(
+            "requests.put", return_value=response
+        ) as save_progress:
+            next(button for button in app.button if button.label == "Save today's progress").click().run()
+
+        self.assertIn("/member/journal/progress/", save_progress.call_args.args[0])
+        self.assertEqual(
+            save_progress.call_args.kwargs["json"],
+            {
+                "goal_type": "masturbation_free",
+                "status": "met_goal",
+                "social_goal": "short_conversation",
+                "social_completed": True,
+            },
+        )
 
     def test_member_dashboard_opens_private_journal(self):
         """Catches a journal backend that members cannot reach from the dashboard."""
@@ -350,7 +396,8 @@ class LaunchPlanTests(unittest.TestCase):
         with patch("requests.get", return_value=profile_response):
             next(button for button in app.button if button.label == "Check in").click().run()
 
-        self.assertIn("Check in", [title.value for title in app.title])
+        visible = " ".join(item.value for item in app.markdown)
+        self.assertIn("Let’s pause for a moment", visible)
         self.assertEqual(app.radio[0].label, "What's happening right now?")
         self.assertEqual(
             app.radio[0].options,

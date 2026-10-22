@@ -80,6 +80,21 @@ PURGE_MARGIN = timedelta(days=1)
 
 KIND_ENTRY = "entry"
 KIND_PROFILE = "profile"
+KIND_PROGRESS = "progress"
+
+ALLOWED_DAILY_GOALS = (
+    "porn_free",
+    "masturbation_free",
+    "porn_and_masturbation_free",
+)
+ALLOWED_DAILY_STATUSES = ("met_goal", "missed_goal")
+ALLOWED_SOCIAL_GOALS = (
+    "say_hello",
+    "short_conversation",
+    "ask_open_question",
+    "listen_and_follow_up",
+    "invite_shared_activity",
+)
 
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 _TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
@@ -262,6 +277,7 @@ def normalize_coping_actions(value):
 # ---------------------------------------------------------------------------
 PROFILE_FIELDS = ("goal", "why_it_matters", "coping_actions")
 ENTRY_FIELDS = ("category", "action", "note")
+PROGRESS_FIELDS = ("goal_type", "status", "social_goal", "social_completed")
 
 
 def _no_duplicate_keys(pairs):
@@ -347,6 +363,36 @@ def parse_limit(raw):
     if not 1 <= limit <= PAGE_MAX:
         raise JournalValidationError("limit", "out_of_range", min=1, max=PAGE_MAX)
     return limit
+
+
+def validate_progress_day(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise JournalValidationError("day", "invalid_date")
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError:
+        raise JournalValidationError("day", "invalid_date") from None
+
+
+def validate_progress_changes(payload):
+    unknown = set(payload) - set(PROGRESS_FIELDS)
+    if unknown:
+        raise JournalValidationError("body", "unknown_fields")
+    if not payload:
+        raise JournalValidationError("body", "no_fields")
+    changes = {}
+    for field, allowed in (
+        ("goal_type", ALLOWED_DAILY_GOALS),
+        ("status", ALLOWED_DAILY_STATUSES),
+        ("social_goal", ALLOWED_SOCIAL_GOALS),
+    ):
+        if field in payload:
+            changes[field] = _validate_choice(payload[field], field, allowed)
+    if "social_completed" in payload:
+        if not isinstance(payload["social_completed"], bool):
+            raise JournalValidationError("social_completed", "must_be_boolean")
+        changes["social_completed"] = payload["social_completed"]
+    return changes
 
 
 def encode_cursor(created_at, entry_id):
@@ -464,6 +510,19 @@ _SCHEMA = (
            key TEXT PRIMARY KEY,
            value TEXT NOT NULL
        )""",
+    """CREATE TABLE IF NOT EXISTS journal_daily_progress (
+           member_email TEXT NOT NULL,
+           day TEXT NOT NULL,
+           goal_type TEXT NOT NULL,
+           status TEXT NOT NULL,
+           social_goal TEXT,
+           social_completed INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           PRIMARY KEY (member_email, day)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_journal_daily_progress_member_day
+           ON journal_daily_progress (member_email, day DESC)""",
 )
 
 JOURNAL_TABLES = frozenset(
@@ -473,6 +532,7 @@ JOURNAL_TABLES = frozenset(
         "journal_write_log",
         "journal_retention",
         "journal_meta",
+        "journal_daily_progress",
     }
 )
 
@@ -753,13 +813,105 @@ def delete_entry(conn, member, entry_id):
         raise JournalNotFound("entry not found")
 
 
+def _progress_from_row(row):
+    day, goal_type, status, social_goal, social_completed, created_at, updated_at = row
+    return {
+        "day": day,
+        "goal_type": goal_type,
+        "status": status,
+        "social_goal": social_goal,
+        "social_completed": bool(social_completed),
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
+def upsert_daily_progress(conn, member, day, changes, now):
+    day_value = validate_progress_day(day)
+    if abs((day_value - now.date()).days) > 1:
+        raise JournalValidationError("day", "must_be_today")
+    current_row = conn.execute(
+        """SELECT day, goal_type, status, social_goal, social_completed, created_at, updated_at
+           FROM journal_daily_progress WHERE member_email = ? AND day = ?""",
+        (member, day),
+    ).fetchone()
+    current = _progress_from_row(current_row) if current_row else {}
+    merged = {field: changes.get(field, current.get(field)) for field in PROGRESS_FIELDS}
+    if not merged["goal_type"] or not merged["status"]:
+        raise JournalValidationError("body", "goal_and_status_required")
+    stamp = to_ts(now)
+    with immediate_transaction(conn):
+        _check_rate(conn, member, KIND_PROGRESS, PROFILE_WRITES_PER_HOUR, now)
+        conn.execute(
+            """INSERT INTO journal_daily_progress
+               (member_email, day, goal_type, status, social_goal, social_completed, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(member_email, day) DO UPDATE SET
+                   goal_type = excluded.goal_type,
+                   status = excluded.status,
+                   social_goal = excluded.social_goal,
+                   social_completed = excluded.social_completed,
+                   updated_at = excluded.updated_at""",
+            (
+                member, day, merged["goal_type"], merged["status"], merged["social_goal"],
+                int(bool(merged["social_completed"])),
+                current.get("created_at") or stamp, stamp,
+            ),
+        )
+        _record_write(conn, member, KIND_PROGRESS, now)
+    row = conn.execute(
+        """SELECT day, goal_type, status, social_goal, social_completed, created_at, updated_at
+           FROM journal_daily_progress WHERE member_email = ? AND day = ?""",
+        (member, day),
+    ).fetchone()
+    return _progress_from_row(row)
+
+
+def list_daily_progress(conn, member, now, days=93):
+    rows = conn.execute(
+        """SELECT day, goal_type, status, social_goal, social_completed, created_at, updated_at
+           FROM journal_daily_progress WHERE member_email = ? ORDER BY day ASC""",
+        (member,),
+    ).fetchall()
+    entries = [_progress_from_row(row) for row in rows]
+    by_day = {datetime.date.fromisoformat(item["day"]): item for item in entries}
+
+    best = run = 0
+    previous = None
+    for day in sorted(by_day):
+        if by_day[day]["status"] == "met_goal" and (previous is None or day == previous + timedelta(days=1)):
+            run += 1
+        elif by_day[day]["status"] == "met_goal":
+            run = 1
+        else:
+            run = 0
+        best = max(best, run)
+        previous = day
+
+    current = 0
+    cursor = now.date()
+    if cursor not in by_day:
+        cursor -= timedelta(days=1)
+    while by_day.get(cursor, {}).get("status") == "met_goal":
+        current += 1
+        cursor -= timedelta(days=1)
+    return {
+        "days": entries[-days:],
+        "current_streak": current,
+        "best_streak": best,
+        "goal_days": sum(item["status"] == "met_goal" for item in entries),
+        "social_steps": sum(item["social_completed"] for item in entries),
+    }
+
+
 def delete_all(conn, member):
     """Erase every entry and the profile. The write log is kept on purpose so
     deleting everything cannot be used to reset the hourly write limits."""
     with immediate_transaction(conn):
         entries = conn.execute("DELETE FROM journal_entries WHERE member_email = ?", (member,)).rowcount
         profile = conn.execute("DELETE FROM journal_profiles WHERE member_email = ?", (member,)).rowcount
-    return {"entries_deleted": entries, "profile_deleted": bool(profile)}
+        progress = conn.execute("DELETE FROM journal_daily_progress WHERE member_email = ?", (member,)).rowcount
+    return {"entries_deleted": entries, "profile_deleted": bool(profile), "progress_deleted": progress}
 
 
 def export_all(conn, cipher, member, now):
@@ -774,6 +926,7 @@ def export_all(conn, cipher, member, now):
         "exported_at": to_ts(now),
         "profile": get_profile(conn, cipher, member),
         "entries": [_entry_from_row(cipher, row) for row in rows],
+        "daily_progress": list_daily_progress(conn, member, now)["days"],
     }
 
 
@@ -784,6 +937,7 @@ def has_data(conn, member):
     return bool(
         conn.execute("SELECT 1 FROM journal_entries WHERE member_email = ? LIMIT 1", (member,)).fetchone()
         or conn.execute("SELECT 1 FROM journal_profiles WHERE member_email = ? LIMIT 1", (member,)).fetchone()
+        or conn.execute("SELECT 1 FROM journal_daily_progress WHERE member_email = ? LIMIT 1", (member,)).fetchone()
     )
 
 
@@ -833,6 +987,7 @@ def purge_member(conn, member, now):
     record that the purge happened. The caller owns the transaction."""
     conn.execute("DELETE FROM journal_entries WHERE member_email = ?", (member,))
     conn.execute("DELETE FROM journal_profiles WHERE member_email = ?", (member,))
+    conn.execute("DELETE FROM journal_daily_progress WHERE member_email = ?", (member,))
     conn.execute("DELETE FROM journal_write_log WHERE member_email = ?", (member,))
     stamp = to_ts(now)
     conn.execute(
@@ -885,7 +1040,8 @@ def run_cleanup(get_db, now=None):
             orphans = conn.execute(
                 """SELECT DISTINCT d.member_email
                    FROM (SELECT member_email FROM journal_entries
-                         UNION SELECT member_email FROM journal_profiles) AS d
+                         UNION SELECT member_email FROM journal_profiles
+                         UNION SELECT member_email FROM journal_daily_progress) AS d
                    LEFT JOIN customers c ON c.email = d.member_email
                    LEFT JOIN journal_retention r ON r.member_email = d.member_email
                    WHERE (c.email IS NULL OR c.active = 0) AND r.member_email IS NULL"""

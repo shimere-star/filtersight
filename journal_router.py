@@ -74,6 +74,21 @@ def build_router(service, member_dependency):
     async def delete_entry(entry_id: str, member: dict = Depends(member_dependency)):
         return _send(await run_in_threadpool(service.entry_delete, member["email"], entry_id))
 
+    @router.get("/progress")
+    async def get_progress(member: dict = Depends(member_dependency)):
+        return _send(await run_in_threadpool(service.progress_get, member["email"]))
+
+    @router.put("/progress/{day}")
+    async def update_progress(
+        day: str, request: Request, member: dict = Depends(member_dependency)
+    ):
+        body = await _read_limited_body(request, service.max_body_bytes)
+        if body is None:
+            return _send(service.payload_too_large())
+        return _send(
+            await run_in_threadpool(service.progress_update, member["email"], day, body)
+        )
+
     @router.delete("/data")
     async def delete_all(member: dict = Depends(member_dependency)):
         return _send(await run_in_threadpool(service.delete_all, member["email"]))
