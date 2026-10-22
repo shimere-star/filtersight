@@ -46,6 +46,8 @@ JOURNAL_ROUTES = [
     ("POST", "/member/journal/entries"),
     ("PATCH", "/member/journal/entries/abc123"),
     ("DELETE", "/member/journal/entries/abc123"),
+    ("GET", "/member/journal/progress"),
+    ("PUT", "/member/journal/progress/2026-10-10"),
     ("DELETE", "/member/journal/data"),
     ("GET", "/member/journal/export"),
 ]
@@ -174,7 +176,8 @@ class AuthenticationTests(JournalHttpTestCase):
     def test_all_journal_routes_are_registered_beside_the_existing_ones(self):
         paths = app_route_paths(webhook_server.app)
         for _, path in JOURNAL_ROUTES:
-            self.assertIn(path.replace("abc123", "{entry_id}"), paths)
+            expected = path.replace("abc123", "{entry_id}").replace("2026-10-10", "{day}")
+            self.assertIn(expected, paths)
         for existing in (
             "/stripe-webhook",
             "/provision-nextdns-profile",
@@ -276,6 +279,27 @@ class SupportDeletionTests(JournalHttpTestCase):
 # Behaviour through HTTP
 # ===========================================================================
 class JournalApiTests(JournalHttpTestCase):
+    def test_daily_progress_round_trip_uses_the_authenticated_member(self):
+        day = datetime.now(timezone.utc).date().isoformat()
+        payload = {
+            "goal_type": "masturbation_free",
+            "status": "met_goal",
+            "social_goal": "say_hello",
+            "social_completed": True,
+        }
+        saved = self.client.put(
+            f"/member/journal/progress/{day}", json=payload, headers=self.alice
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["status"], "met_goal")
+        progress = self.client.get("/member/journal/progress", headers=self.alice)
+        self.assertEqual(progress.status_code, 200)
+        self.assertEqual(progress.json()["current_streak"], 1)
+        self.assertEqual(progress.json()["social_steps"], 1)
+        self.assertEqual(
+            self.client.get("/member/journal/progress", headers=self.bob).json()["days"], []
+        )
+
     def test_full_lifecycle(self):
         response = self.client.patch(
             "/member/journal/profile",

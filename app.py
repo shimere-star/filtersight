@@ -6,6 +6,8 @@ import json
 import requests
 import logging
 import time
+import calendar
+import datetime
 from html import escape
 
 from companion_flow import (
@@ -48,6 +50,18 @@ JOURNAL_ACTIONS = {
     "talked_it_through": "Talked it through",
     "contacted_trusted_person": "Contacted a trusted person",
     "did_something_else": "Did something else",
+}
+DAILY_GOALS = {
+    "porn_free": "Porn-free day",
+    "masturbation_free": "Masturbation-free day",
+    "porn_and_masturbation_free": "Porn- and masturbation-free day",
+}
+SOCIAL_GOALS = {
+    "say_hello": "Say hello to a woman in an everyday setting",
+    "short_conversation": "Have a short, ordinary conversation with a woman",
+    "ask_open_question": "Ask an open question and listen to the answer",
+    "listen_and_follow_up": "Practice listening and ask one follow-up question",
+    "invite_shared_activity": "Invite someone you know to a casual shared activity",
 }
 
 st.set_page_config(page_title="FilterSight", page_icon="🔒")
@@ -590,6 +604,121 @@ def render_journal_entries(headers):
             st.error(journal_error_message(error))
 
 
+def render_progress_calendar(progress):
+    today = datetime.date.today()
+    month = calendar.Calendar(firstweekday=6).monthdayscalendar(today.year, today.month)
+    by_day = {item["day"]: item for item in progress.get("days", [])}
+    cells = []
+    for week in month:
+        for number in week:
+            if not number:
+                cells.append('<span class="progress-day empty" aria-hidden="true"></span>')
+                continue
+            day = datetime.date(today.year, today.month, number).isoformat()
+            item = by_day.get(day)
+            state = "unlogged"
+            symbol = str(number)
+            label = f"{day}: no check-in"
+            if item and item.get("status") == "met_goal":
+                state, symbol, label = "met", f"{number}<b>✓</b>", f"{day}: goal met"
+            elif item and item.get("status") == "missed_goal":
+                state, symbol, label = "missed", f"{number}<b>•</b>", f"{day}: fresh start"
+            cells.append(f'<span class="progress-day {state}" aria-label="{label}">{symbol}</span>')
+    st.markdown(
+        f"""
+        <div class="progress-calendar" aria-label="Daily progress calendar">
+          <div class="progress-month">{today.strftime('%B %Y')}</div>
+          <div class="progress-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+          <div class="progress-days">{''.join(cells)}</div>
+          <div class="progress-legend"><span><i class="met"></i>Goal met</span><span><i class="missed"></i>Fresh start</span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_daily_progress(headers):
+    st.markdown(
+        """
+        <div class="journal-panel-intro">
+            <span class="eyebrow">One day at a time</span>
+            <h2>Daily progress</h2>
+            <p>Track the personal goal you chose and rebuild social confidence through small, respectful everyday interactions.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    try:
+        progress = journal_get("/progress", headers)
+    except requests.RequestException as error:
+        st.error(journal_error_message(error))
+        return
+
+    current, best, social = st.columns(3)
+    current.metric("Current streak", f"{progress.get('current_streak', 0)} days")
+    best.metric("Best streak", f"{progress.get('best_streak', 0)} days")
+    social.metric("Social steps", progress.get("social_steps", 0))
+    render_progress_calendar(progress)
+
+    today = datetime.date.today().isoformat()
+    today_entry = next((item for item in progress.get("days", []) if item.get("day") == today), {})
+    with st.form("daily_progress_form"):
+        goal_type = st.selectbox(
+            "Today's personal goal",
+            options=list(DAILY_GOALS),
+            index=list(DAILY_GOALS).index(today_entry.get("goal_type", "porn_and_masturbation_free")),
+            format_func=DAILY_GOALS.get,
+        )
+        status = st.radio(
+            "How did today go?",
+            options=["met_goal", "missed_goal"],
+            index=(
+                ["met_goal", "missed_goal"].index(today_entry["status"])
+                if today_entry.get("status") in ("met_goal", "missed_goal") else None
+            ),
+            format_func=lambda value: {
+                "met_goal": "I met my goal today",
+                "missed_goal": "I didn't meet it today",
+            }[value],
+        )
+        social_goal = st.selectbox(
+            "Optional social-confidence step",
+            options=[None, *SOCIAL_GOALS],
+            index=[None, *SOCIAL_GOALS].index(today_entry.get("social_goal")),
+            format_func=lambda value: "Choose a small step" if value is None else SOCIAL_GOALS[value],
+            help="The attempt counts. Be respectful, accept boundaries, and let the conversation end naturally.",
+        )
+        social_completed = st.checkbox(
+            "I attempted this step",
+            value=bool(today_entry.get("social_completed")),
+        )
+        save_progress = st.form_submit_button("Save today's progress")
+    if save_progress:
+        if status is None:
+            st.error("Choose how today went before saving.")
+        else:
+            try:
+                journal_write(
+                    "put",
+                    f"/progress/{today}",
+                    headers,
+                    json={
+                        "goal_type": goal_type,
+                        "status": status,
+                        "social_goal": social_goal,
+                        "social_completed": bool(social_goal and social_completed),
+                    },
+                )
+                st.session_state.journal_notice = True
+                st.rerun()
+            except requests.RequestException as error:
+                st.error(journal_error_message(error))
+
+    if today_entry.get("status") == "missed_goal":
+        st.info("One missed day doesn't erase your progress. Notice what happened, choose your next helpful action, and begin again today.")
+    st.caption("This tracker supports goals you choose for yourself. It is not a diagnosis or a claim that masturbation causes social anxiety.")
+
+
 def render_journal_data(headers):
     st.markdown(
         """
@@ -828,6 +957,26 @@ def render_private_journal(headers):
             font-size:.86rem;
             line-height:1.5;
         }
+        .progress-calendar {
+            margin:.75rem 0 1.25rem;
+            padding:1rem;
+            border:1px solid rgba(203,229,216,.2);
+            border-radius:16px;
+            background:rgba(246,251,247,.055);
+        }
+        .progress-month { margin-bottom:.75rem; color:#FFF9EF; font:700 1.1rem Georgia,serif; }
+        .progress-weekdays,.progress-days { display:grid; grid-template-columns:repeat(7,1fr); gap:.35rem; }
+        .progress-weekdays span { padding:.2rem; color:#9FCDB7; font-size:.65rem; text-align:center; text-transform:uppercase; }
+        .progress-day { position:relative; min-height:44px; display:grid; place-items:center; border-radius:10px; background:rgba(255,255,255,.05); color:#C9D9D1; font-size:.78rem; }
+        .progress-day b { position:absolute; right:4px; bottom:2px; font-size:.68rem; }
+        .progress-day.met { background:rgba(93,190,137,.2); color:#EDFFF4; box-shadow:inset 0 0 0 1px rgba(126,220,165,.3); }
+        .progress-day.missed { background:rgba(240,125,99,.14); color:#FFE9E3; box-shadow:inset 0 0 0 1px rgba(240,125,99,.25); }
+        .progress-day.empty { visibility:hidden; }
+        .progress-legend { display:flex; gap:1rem; margin-top:.7rem; color:#AFC6BA; font-size:.72rem; }
+        .progress-legend span { display:flex; align-items:center; gap:.35rem; }
+        .progress-legend i { width:9px; height:9px; border-radius:50%; }
+        .progress-legend i.met { background:#5DBE89; }
+        .progress-legend i.missed { background:#F07D63; }
         [data-testid="stCaptionContainer"] p { color:#9EB7AB !important; }
         @media(max-width:620px) {
             .main .block-container { width:calc(100% - 1.15rem); padding-top:.55rem; }
@@ -889,7 +1038,11 @@ def render_private_journal(headers):
     if st.session_state.pop("journal_notice", None):
         st.success("Your journal changes were saved.")
 
-    plan_tab, entries_tab, data_tab = st.tabs(["My plan", "Journal entries", "Data & privacy"])
+    progress_tab, plan_tab, entries_tab, data_tab = st.tabs(
+        ["Daily progress", "My plan", "Journal entries", "Data & privacy"]
+    )
+    with progress_tab:
+        render_daily_progress(headers)
     with plan_tab:
         render_journal_plan(headers)
     with entries_tab:
