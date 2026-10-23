@@ -82,6 +82,15 @@ class LaunchPlanTests(unittest.TestCase):
         self.assertNotIn('"Review"', source)
         self.assertNotIn('"aggregateRating"', source)
 
+    def test_homepage_keeps_google_search_console_verification(self):
+        source = (ROOT / "index.html").read_text()
+
+        self.assertIn(
+            '<meta name="google-site-verification" '
+            'content="cbFme49KRRXcLy_j2Qqeo6dJz06gzH1ru6QbpywT-yQ">',
+            source,
+        )
+
     def test_light_surface_forces_readable_widget_labels(self):
         """Catches dark-theme widget labels disappearing on the light app surface."""
         source = (ROOT / "app.py").read_text()
