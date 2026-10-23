@@ -47,6 +47,41 @@ class TextCollector(HTMLParser):
 
 
 class LaunchPlanTests(unittest.TestCase):
+    def test_public_pages_have_launch_seo_metadata(self):
+        expected = {
+            "index.html": "https://filtersight.com/",
+            "founder-story.html": "https://filtersight.com/founder-story.html",
+            "mission.html": "https://filtersight.com/mission.html",
+            "privacy.html": "https://filtersight.com/privacy.html",
+            "terms.html": "https://filtersight.com/terms.html",
+        }
+        for filename, canonical in expected.items():
+            source = (ROOT / filename).read_text()
+            with self.subTest(filename=filename):
+                self.assertIn('<meta name="description"', source)
+                self.assertIn(f'<link rel="canonical" href="{canonical}">', source)
+                self.assertIn('<meta property="og:title"', source)
+                self.assertIn(f'<meta property="og:url" content="{canonical}">', source)
+
+    def test_crawlers_can_find_the_public_sitemap(self):
+        robots = (ROOT / "robots.txt").read_text()
+        sitemap = (ROOT / "sitemap.xml").read_text()
+
+        self.assertIn("User-agent: *", robots)
+        self.assertIn("Allow: /", robots)
+        self.assertIn("Sitemap: https://filtersight.com/sitemap.xml", robots)
+        for path in ("/", "/founder-story.html", "/mission.html", "/privacy.html", "/terms.html"):
+            self.assertIn(f"<loc>https://filtersight.com{path}</loc>", sitemap)
+
+    def test_homepage_structured_data_names_real_entities(self):
+        source = (ROOT / "index.html").read_text()
+
+        self.assertIn('type="application/ld+json"', source)
+        self.assertIn('"@type": "Organization"', source)
+        self.assertIn('"@type": "WebSite"', source)
+        self.assertNotIn('"Review"', source)
+        self.assertNotIn('"aggregateRating"', source)
+
     def test_light_surface_forces_readable_widget_labels(self):
         """Catches dark-theme widget labels disappearing on the light app surface."""
         source = (ROOT / "app.py").read_text()
