@@ -1325,6 +1325,17 @@ def render_companion(headers):
     with help_action:
         if st.button("I need help now", key="companion_help", type="primary", use_container_width=True):
             go_to_checkin("emergency")
+    try:
+        usage_response = requests.get(
+            f"{BACKEND_URL}/member/chat/usage", headers=headers, timeout=15
+        )
+        usage_response.raise_for_status()
+        chat_usage = usage_response.json()
+        st.caption(
+            f"{chat_usage.get('remaining', 0)} of {chat_usage.get('limit', 20)} companion messages remaining today · Resets daily at 12:00 AM UTC"
+        )
+    except requests.RequestException:
+        chat_usage = None
     if "member_chat_history" not in st.session_state:
         st.session_state.member_chat_history = [{"role": "assistant", "content": "I'm here. What's on your mind?"}]
     for item in st.session_state.member_chat_history:
@@ -1339,8 +1350,11 @@ def render_companion(headers):
                 f"{BACKEND_URL}/member/chat", headers=headers,
                 json={"message": prompt, "history": history}, timeout=30,
             )
-            response.raise_for_status()
-            reply = response.json().get("reply", "I'm here. Can you tell me a bit more about what's going on?")
+            if response.status_code == 429:
+                reply = "You've reached today's 20-message companion limit. You can chat again tomorrow."
+            else:
+                response.raise_for_status()
+                reply = response.json().get("reply", "I'm here. Can you tell me a bit more about what's going on?")
         except requests.RequestException:
             reply = "I couldn't connect just now. Please try again in a moment."
         st.session_state.member_chat_history.append({"role": "assistant", "content": reply})

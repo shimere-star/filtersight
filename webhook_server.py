@@ -56,6 +56,7 @@ JOURNAL_ADMIN_SECRET = os.environ.get("JOURNAL_ADMIN_SECRET")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
 # Reuse the configured verified sender address; allow a SendGrid-specific name too.
 SENDGRID_FROM_EMAIL = os.environ.get("SENDGRID_FROM_EMAIL") or os.environ.get("SMTP_FROM_EMAIL")
+DAILY_CHAT_LIMIT = 20
 
 DB_PATH = os.environ.get("DB_PATH", "/data/customers.db")
 
@@ -88,6 +89,14 @@ def get_db():
             stripe_subscription_id TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS member_chat_usage (
+            email TEXT NOT NULL,
+            usage_date TEXT NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (email, usage_date)
         )
     """)
     # Lightweight migration for DBs created before this update.
@@ -428,6 +437,75 @@ class MemberChatRequest(BaseModel):
     history: list = Field(default_factory=list)
 
 
+def chat_usage_for_member(email, usage_date=None):
+    usage_date = usage_date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT message_count FROM member_chat_usage WHERE email = ? AND usage_date = ?",
+            (email, usage_date),
+        ).fetchone()
+        used = row[0] if row else 0
+        return {"limit": DAILY_CHAT_LIMIT, "used": used, "remaining": max(0, DAILY_CHAT_LIMIT - used)}
+    finally:
+        db.close()
+
+
+def reserve_chat_message(email, usage_date=None):
+    usage_date = usage_date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    db = get_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT message_count FROM member_chat_usage WHERE email = ? AND usage_date = ?",
+            (email, usage_date),
+        ).fetchone()
+        used = row[0] if row else 0
+        if used >= DAILY_CHAT_LIMIT:
+            db.rollback()
+            return False, usage_date
+        db.execute(
+            """INSERT INTO member_chat_usage (email, usage_date, message_count)
+               VALUES (?, ?, 1)
+               ON CONFLICT(email, usage_date) DO UPDATE SET
+                   message_count = member_chat_usage.message_count + 1""",
+            (email, usage_date),
+        )
+        db.commit()
+        return True, usage_date
+    finally:
+        db.close()
+
+
+def release_chat_message(email, usage_date):
+    db = get_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT message_count FROM member_chat_usage WHERE email = ? AND usage_date = ?",
+            (email, usage_date),
+        ).fetchone()
+        if row and row[0] <= 1:
+            db.execute(
+                "DELETE FROM member_chat_usage WHERE email = ? AND usage_date = ?",
+                (email, usage_date),
+            )
+        elif row:
+            db.execute(
+                "UPDATE member_chat_usage SET message_count = message_count - 1 WHERE email = ? AND usage_date = ?",
+                (email, usage_date),
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
+@app.get("/member/chat/usage")
+async def member_chat_usage(request: Request):
+    member = require_member_session(request)
+    return chat_usage_for_member(member["email"])
+
+
 @app.post("/member/chat")
 async def member_chat(request: Request, body: MemberChatRequest):
     member = require_member_session(request)
@@ -439,7 +517,23 @@ async def member_chat(request: Request, body: MemberChatRequest):
         and item.get("role") in ("user", "assistant")
         and isinstance(item.get("content"), str)
     ]
-    return {"reply": get_chat_response(body.message, conversation_history=safe_history)}
+    reserved, usage_date = reserve_chat_message(member["email"])
+    if not reserved:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "reason": "daily_chat_limit_reached",
+                "limit": DAILY_CHAT_LIMIT,
+                "message": "You've reached today's 20-message companion limit. You can chat again tomorrow.",
+            },
+        )
+    try:
+        reply = get_chat_response(body.message, conversation_history=safe_history)
+    except Exception:
+        release_chat_message(member["email"], usage_date)
+        raise
+    usage = chat_usage_for_member(member["email"], usage_date)
+    return {"reply": reply, "messages_remaining": usage["remaining"], "daily_limit": DAILY_CHAT_LIMIT}
 
 
 @app.post("/member/cancel")
