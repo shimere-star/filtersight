@@ -482,7 +482,7 @@ class LaunchPlanTests(unittest.TestCase):
         # so no table may exist beyond the original three plus the journal's own.
         self.assertEqual(
             tables,
-            {"customers", "member_magic_links", "member_sessions"}
+            {"customers", "member_magic_links", "member_sessions", "member_chat_usage"}
             | set(webhook_server.journal_store.JOURNAL_TABLES),
         )
         self.assertFalse(

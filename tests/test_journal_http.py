@@ -706,6 +706,33 @@ class StartupCleanupTests(JournalHttpTestCase):
 # Regression: sign-in, checkout verification, entitlement, migration
 # ===========================================================================
 class RegressionTests(JournalHttpTestCase):
+    def test_companion_is_limited_to_twenty_member_messages_per_utc_day(self):
+        with patch.object(webhook_server, "get_chat_response", return_value="I'm here.") as reply:
+            for remaining in range(19, -1, -1):
+                response = self.client.post(
+                    "/member/chat",
+                    json={"message": "hello", "history": []},
+                    headers=self.alice,
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["messages_remaining"], remaining)
+
+            blocked = self.client.post(
+                "/member/chat",
+                json={"message": "one more", "history": []},
+                headers=self.alice,
+            )
+
+        self.assertEqual(reply.call_count, 20)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.json()["detail"]["reason"], "daily_chat_limit_reached")
+        usage = self.client.get("/member/chat/usage", headers=self.alice).json()
+        self.assertEqual(usage, {"limit": 20, "used": 20, "remaining": 0})
+        self.assertEqual(
+            self.client.get("/member/chat/usage", headers=self.bob).json(),
+            {"limit": 20, "used": 0, "remaining": 20},
+        )
+
     def test_sign_in_link_flow_still_works_and_unlocks_the_journal(self):
         sent = {}
 
@@ -801,7 +828,11 @@ class MigrationThroughGetDbTests(unittest.TestCase):
                 }
                 migrated.close()
 
-        self.assertEqual(tables, {"customers", "member_magic_links", "member_sessions"} | set(journal_store.JOURNAL_TABLES))
+        self.assertEqual(
+            tables,
+            {"customers", "member_magic_links", "member_sessions", "member_chat_usage"}
+            | set(journal_store.JOURNAL_TABLES),
+        )
         # Existing rows survive; the pre-existing legacy-messaging purge still runs.
         self.assertEqual(row, [("m@example.com", "cus_1", "sub_1", 1, "filtersight", "abc123", None)])
         # No existing table definition was changed (the legacy columns were already there).
