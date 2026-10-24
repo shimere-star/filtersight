@@ -203,8 +203,9 @@ def send_member_signin_email(email: str, token: str) -> None:
     link = f"{base_url}/?{urlencode({'view': 'member', 'magic_token': token})}"
     payload = {
         "personalizations": [{"to": [{"email": email}]}],
-        "from": {"email": SENDGRID_FROM_EMAIL},
-        "subject": "Your Filtersight sign-in link",
+        "from": {"email": SENDGRID_FROM_EMAIL, "name": "FilterSight"},
+        "reply_to": {"email": SENDGRID_FROM_EMAIL, "name": "FilterSight Support"},
+        "subject": "Your FilterSight sign-in link",
         "content": [{
             "type": "text/plain",
             "value": (
@@ -213,6 +214,13 @@ def send_member_signin_email(email: str, token: str) -> None:
                 f"{link}\n\nIf you did not request this email, you can ignore it."
             ),
         }],
+        # Authentication links are transactional, not marketing messages. Keep
+        # the destination on FilterSight's app URL and avoid tracking pixels.
+        "tracking_settings": {
+            "click_tracking": {"enable": False, "enable_text": False},
+            "open_tracking": {"enable": False},
+            "subscription_tracking": {"enable": False},
+        },
     }
     try:
         response = requests.post(
