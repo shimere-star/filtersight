@@ -706,6 +706,28 @@ class StartupCleanupTests(JournalHttpTestCase):
 # Regression: sign-in, checkout verification, entitlement, migration
 # ===========================================================================
 class RegressionTests(JournalHttpTestCase):
+    def test_sign_in_email_uses_authenticated_identity_without_marketing_tracking(self):
+        accepted = Mock(status_code=202)
+        with (
+            patch.object(webhook_server, "SENDGRID_API_KEY", "key"),
+            patch.object(webhook_server, "SENDGRID_FROM_EMAIL", "support@filtersight.com"),
+            patch.object(webhook_server.requests, "post", return_value=accepted) as post,
+        ):
+            webhook_server.send_member_signin_email("alice@example.com", "one-time-token")
+
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["from"], {"email": "support@filtersight.com", "name": "FilterSight"})
+        self.assertEqual(payload["reply_to"]["email"], "support@filtersight.com")
+        self.assertEqual(payload["subject"], "Your FilterSight sign-in link")
+        self.assertEqual(
+            payload["tracking_settings"],
+            {
+                "click_tracking": {"enable": False, "enable_text": False},
+                "open_tracking": {"enable": False},
+                "subscription_tracking": {"enable": False},
+            },
+        )
+
     def test_companion_is_limited_to_twenty_member_messages_per_utc_day(self):
         with patch.object(webhook_server, "get_chat_response", return_value="I'm here.") as reply:
             for remaining in range(19, -1, -1):
