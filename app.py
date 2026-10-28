@@ -360,6 +360,7 @@ is_member_view = query_params.get("view") == "member"
 if not is_member_view:
     st.title("FilterSight")
     st.write("Private DNS filtering and calm support when you need it.")
+    st.write("FilterSight works on iPhone, iPad & Mac. Android is not supported yet.")
     email = st.text_input("Email address")
     normalized_email = email.strip().lower()
 else:
