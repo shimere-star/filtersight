@@ -9,6 +9,7 @@ import time
 import calendar
 import datetime
 from html import escape
+from marketing_analytics import campaign_tags, analytics_html
 
 from companion_flow import (
     CHECKIN_OPTIONS,
@@ -357,6 +358,29 @@ div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !im
 )
 query_params = st.query_params
 is_member_view = query_params.get("view") == "member"
+# Keep only allowlisted campaign labels in the temporary signup session.
+if not is_member_view:
+    if (query_params.get("fs_analytics") == "off"
+            or st.context.headers.get("DNT") == "1"
+            or st.context.headers.get("Sec-GPC") == "1"):
+        st.session_state["marketing_opt_out"] = True
+    if "marketing_tags" not in st.session_state:
+        st.session_state["marketing_tags"] = campaign_tags(query_params)
+
+
+def track_signup(event, dedup_key, tags=None):
+    if is_member_view or st.session_state.get("marketing_opt_out"):
+        return
+    try:
+        markup = analytics_html(
+            event, tags if tags is not None else st.session_state.get("marketing_tags", {}), dedup_key
+        )
+        if markup:
+            st.html(markup, unsafe_allow_javascript=True)
+    except Exception:
+        # Measurement must never affect billing, provisioning, or member access.
+        logger.warning("marketing_event_unavailable")
+
 if not is_member_view:
     st.title("FilterSight")
     st.write("Private DNS filtering and calm support when you need it.")
@@ -1895,6 +1919,7 @@ def render_member_dashboard():
 if query_params.get("view") == "member":
     render_member_dashboard()
 elif query_params.get("session_id") is None:
+    track_signup("Signup viewed", "signup-view")
     st.subheader("FilterSight")
     st.write("$10/month")
     st.caption("Private DNS filtering plus the AI companion and guided check-ins. Cancel anytime.")
@@ -1911,7 +1936,7 @@ elif query_params.get("session_id") is None:
                     line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
                     success_url=f"{APP_BASE_URL}/?session_id={{CHECKOUT_SESSION_ID}}",
                     cancel_url=APP_BASE_URL,
-                    metadata={"plan": PLAN_ID},
+                    metadata={"plan": PLAN_ID, **({} if st.session_state.get("marketing_opt_out") else st.session_state.get("marketing_tags", {}))},
                     subscription_data={"metadata": {"plan": PLAN_ID}},
                 )
             except Exception as e:
@@ -1921,6 +1946,7 @@ elif query_params.get("session_id") is None:
                     "or contact support@filtersight.com."
                 )
             else:
+                track_signup("Checkout started", "checkout:" + session.url)
                 st.link_button("Go to secure checkout", session.url)
 
 
@@ -1949,6 +1975,8 @@ else:
     if not paid:
         st.error("We couldn't verify this payment. If you were just charged, contact support.")
     else:
+        if getattr(session, "status", None) == "complete" and getattr(session, "mode", None) == "subscription":
+            track_signup("Paid signup", "paid:" + session_id, session.metadata.to_dict())
         st.success(f"Payment verified for {customer_email}. Preparing your profile…")
         st.link_button("Open your member dashboard", f"{APP_BASE_URL}/?view=member")
 

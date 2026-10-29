@@ -1,0 +1,9 @@
+{
+  "website_id": "9da69928-5484-4ee6-b121-670ba9eb9aa6",
+  "campaigns": {
+    "utm_source": ["x", "twitter", "google", "bing", "newsletter"],
+    "utm_medium": ["paid_social", "organic_social", "social", "cpc", "email", "referral"],
+    "utm_campaign": ["launch"],
+    "utm_content": ["bio", "pinned_post", "launch_post", "ad_1", "ad_2", "ad_3"]
+  }
+}

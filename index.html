@@ -86,6 +86,8 @@
     @media(max-width:620px){.shell{width:min(100% - 24px,1240px)}nav{height:74px;gap:10px}.brand{font-size:19px}.brand-mark{width:28px;height:28px}.navlinks{gap:7px}.sign-in{padding:8px 10px}.hero{min-height:auto;padding:62px 0 76px}.hero h1{font-size:54px}.hero-copy>p{font-size:17px}.button{width:100%}.visual{min-height:420px}.halo{width:390px;max-width:110%}.device{width:270px;height:405px;border-radius:34px}.device-top{height:52px}.screen{padding:19px 16px}.screen h2{font-size:27px;margin-bottom:16px}.protected{padding:15px}.protected strong{font-size:30px}.privacy-chip{left:2px;bottom:34px}.trust-row{grid-template-columns:1fr;gap:14px;padding-block:28px}.trust-title{margin-bottom:5px}section{padding:78px 0}.section-head{margin-bottom:40px}h2{font-size:43px}.step{min-height:0;padding:24px}.privacy-grid{gap:40px}.support-art{min-height:410px;border-radius:26px}.companion-card{width:86%;padding:20px}.mini-points{grid-template-columns:1fr}.price-card{padding:28px 22px;border-radius:26px}.price{font-size:61px}.footer-row{display:block}.footer-links{margin-top:30px;flex-wrap:wrap}}
     @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
   </style>
+  <script defer src="/assets/analytics.js"></script>
+  <script defer src="/assets/marketing-page.js"></script>
 </head>
 <body>
   <div class="top">
@@ -107,7 +109,7 @@
           <div class="kicker">A quieter kind of accountability</div>
           <h1 class="serif">Make space for a better you.</h1>
           <p>Private DNS filtering blocks adult sites on your iPhone, iPad &amp; Mac, while a calm AI companion is there whenever you need support.</p>
-          <div class="actions"><a class="button button-primary" href="#pricing">Start FilterSight</a><a class="button button-quiet" href="#how">See how it works</a></div>
+          <div class="actions"><a class="button button-primary" href="#pricing" data-fs-start="hero">Start FilterSight</a><a class="button button-quiet" href="#how">See how it works</a></div>
           <p class="fine">Five-minute setup · No browsing logs · Cancel anytime<br>Works on iPhone, iPad &amp; Mac. Android coming soon.</p>
         </div>
         <div class="visual" aria-label="Illustration of the FilterSight member dashboard">
@@ -156,7 +158,7 @@
   <section class="pricing" id="pricing">
     <div class="shell pricing-wrap">
       <div class="pricing-copy"><div class="label">Simple pricing</div><h2 class="serif">One private plan. Everything included.</h2><p>Protection on your iPhone, iPad &amp; Mac, access to your member dashboard, and calm AI support in one straightforward membership.</p></div>
-      <div class="price-card"><div class="plan">FILTERSIGHT MEMBERSHIP</div><div class="price">$10 <span>/ month</span></div><ul class="features"><li>DNS-level blocking before adult sites load</li><li>One profile for your iPhone, iPad &amp; Mac</li><li>AI companion access in your dashboard</li><li>DNS query logging disabled</li><li>No partner monitoring your activity</li></ul><a class="button button-primary wide" href="https://signup-app-v3-production.up.railway.app/">Start FilterSight</a><p class="legal">Cancel anytime from your member dashboard. Your plan stays active until the end of the billing period. No cancellation fee.</p></div>
+      <div class="price-card"><div class="plan">FILTERSIGHT MEMBERSHIP</div><div class="price">$10 <span>/ month</span></div><ul class="features"><li>DNS-level blocking before adult sites load</li><li>One profile for your iPhone, iPad &amp; Mac</li><li>AI companion access in your dashboard</li><li>DNS query logging disabled</li><li>No partner monitoring your activity</li></ul><a class="button button-primary wide" href="https://signup-app-v3-production.up.railway.app/" data-fs-start="pricing">Start FilterSight</a><p class="legal">Cancel anytime from your member dashboard. Your plan stays active until the end of the billing period. No cancellation fee.</p></div>
     </div>
   </section>
 
