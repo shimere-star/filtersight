@@ -8,6 +8,7 @@
   const pages = {
     "/": "FilterSight", "/index.html": "FilterSight",
     "/founder-story.html": "Our story", "/mission.html": "Mission",
+    "/block-porn-on-iphone.html": "iPhone setup guide",
     "/privacy.html": "Privacy", "/terms.html": "Terms"
   };
   const seen = new Set();
